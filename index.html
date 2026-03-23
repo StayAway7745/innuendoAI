@@ -193,6 +193,40 @@
             align-items: center;
         }
 
+        .tool-action {
+            background: var(--accent);
+            color: white;
+            border: none;
+            border-radius: 6px;
+            padding: 8px 16px;
+            font-size: 13px;
+            font-weight: 600;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            transition: all 0.2s;
+            white-space: nowrap;
+        }
+
+        .tool-action:hover:not(:disabled) {
+            background: var(--hover);
+            transform: translateY(-1px);
+        }
+
+        .tool-action:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+
+        .tool-action.loading {
+            background: var(--muted);
+        }
+
+        .tool-action.completed {
+            background: #10B981;
+        }
+
         .spinbox {
             display: flex;
             align-items: center;
@@ -601,6 +635,9 @@
                         Identificazione delle caratteristiche tecniche e funzionali necessarie per la realizzazione del prodotto.
                     </div>
                     <div class="tool-controls">
+                        <button class="tool-action" onclick="runTool('development')" id="btn-development">
+                            ▶ Esegui
+                        </button>
                         <div class="spinbox">
                             <button onclick="adjustSpin('development', -1)">−</button>
                             <span id="spin-development">3</span>
@@ -627,6 +664,9 @@
                         Segmentazione del mercato attraverso lo studio delle Buyer Personas e l'analisi Eurisko.
                     </div>
                     <div class="tool-controls">
+                        <button class="tool-action" onclick="runTool('target')" id="btn-target">
+                            ▶ Esegui
+                        </button>
                         <div class="spinbox">
                             <button onclick="adjustSpin('target', -1)">−</button>
                             <span id="spin-target">2</span>
@@ -648,6 +688,9 @@
                         Monitoraggio e analisi dei diretti concorrenti per individuare i benchmark di settore.
                     </div>
                     <div class="tool-controls">
+                        <button class="tool-action" onclick="runTool('competitors')" id="btn-competitors">
+                            ▶ Esegui
+                        </button>
                         <div class="spinbox">
                             <button onclick="adjustSpin('competitors', -1)">−</button>
                             <span id="spin-competitors">3</span>
@@ -668,6 +711,11 @@
                     <div class="tool-description">
                         Valutazione analitica delle dinamiche interne ed esterne che influenzano il potenziale del progetto.
                     </div>
+                    <div class="tool-controls">
+                        <button class="tool-action" onclick="runTool('swot')" id="btn-swot">
+                            ▶ Esegui
+                        </button>
+                    </div>
                 </div>
 
                 <!-- Naming -->
@@ -681,6 +729,11 @@
                     </div>
                     <div class="tool-description">
                         Studio e generazione di opzioni nominali orientate al posizionamento del brand sul mercato.
+                    </div>
+                    <div class="tool-controls">
+                        <button class="tool-action" onclick="runTool('naming')" id="btn-naming">
+                            ▶ Esegui
+                        </button>
                     </div>
                 </div>
 
@@ -697,6 +750,9 @@
                         Generazione copy persuasivo basato su neuromarketing: ormoni, cervello trino, ganci emotivi.
                     </div>
                     <div class="tool-controls">
+                        <button class="tool-action" onclick="runTool('copywriting')" id="btn-copywriting">
+                            ▶ Esegui
+                        </button>
                         <div class="spinbox">
                             <button onclick="adjustSpin('copywriting', -1)">−</button>
                             <span id="spin-copywriting">3</span>
@@ -717,6 +773,11 @@
                     <div class="tool-description">
                         Analisi delle fasce di prezzo per il posizionamento: alto, medio e basso.
                     </div>
+                    <div class="tool-controls">
+                        <button class="tool-action" onclick="runTool('pricing')" id="btn-pricing">
+                            ▶ Esegui
+                        </button>
+                    </div>
                 </div>
 
                 <!-- ADV -->
@@ -732,6 +793,9 @@
                         Elaborazione del piano di comunicazione e allocazione del budget pubblicitario.
                     </div>
                     <div class="tool-controls">
+                        <button class="tool-action" onclick="runTool('adv')" id="btn-adv">
+                            ▶ Esegui
+                        </button>
                         <div class="spinbox">
                             <button onclick="adjustSpin('adv', -1)">−</button>
                             <span id="spin-adv">2</span>
@@ -752,6 +816,11 @@
                     </div>
                     <div class="tool-description">
                         Simulazione preventiva delle criticità operative e dei fattori di rischio esterni.
+                    </div>
+                    <div class="tool-controls">
+                        <button class="tool-action" onclick="runTool('risk')" id="btn-risk">
+                            ▶ Esegui
+                        </button>
                     </div>
                 </div>
             </div>
