@@ -3,105 +3,852 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>InnuendoAI</title>
+    <title>InnuendoAI - Pre-incubazione Startup</title>
     <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
+        /* ===== THEME COLORS ===== */
+        :root {
+            --bg: #121418;
+            --surface: #1B1F24;
+            --card: #232A33;
+            --border: #2F3742;
+            --text: #E7ECF2;
+            --muted: #A3B0C2;
+            --accent: #3A86FF;
+            --accent-border: #003E96;
+            --hover: #2F74E0;
+            --radius: 12px;
+        }
+
+        [data-theme="light"] {
+            --bg: #F6F7FA;
+            --surface: #FFFFFF;
+            --card: #EEF2F6;
+            --border: #D6DEE8;
+            --text: #1A1D22;
+            --muted: #6B7280;
+            --accent: #3A86FF;
+            --accent-border: #AACBFF;
+            --hover: #2F74E0;
+        }
+
+        /* ===== RESET ===== */
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
         body {
-            font-family: system-ui, -apple-system, sans-serif;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            min-height: 100vh;
-            padding: 20px;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            line-height: 1.6;
+            overflow-x: hidden;
         }
+
+        /* ===== LAYOUT ===== */
         .container {
-            max-width: 900px;
-            margin: 0 auto;
-            background: white;
-            border-radius: 16px;
-            padding: 40px;
-            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            display: grid;
+            grid-template-columns: 320px 1fr;
+            height: 100vh;
+            overflow: hidden;
         }
-        h1 { color: #667eea; margin-bottom: 30px; }
-        .section { margin-bottom: 25px; }
-        .section h3 { margin-bottom: 10px; color: #333; }
-        input, textarea {
-            width: 100%;
-            padding: 12px;
-            border: 2px solid #e0e0e0;
+
+        /* ===== SIDEBAR ===== */
+        .sidebar {
+            background: var(--surface);
+            border-right: 1px solid var(--border);
+            display: flex;
+            flex-direction: column;
+            overflow-y: auto;
+        }
+
+        .sidebar-header {
+            padding: 20px;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .logo {
+            font-size: 22px;
+            font-weight: 700;
+            color: var(--accent);
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .logo-icon {
+            width: 32px;
+            height: 32px;
+            background: linear-gradient(135deg, var(--accent) 0%, var(--hover) 100%);
             border-radius: 8px;
-            font-size: 14px;
-            font-family: inherit;
-        }
-        input:focus, textarea:focus {
-            outline: none;
-            border-color: #667eea;
-        }
-        textarea { min-height: 120px; resize: vertical; }
-        button {
-            background: #667eea;
+            display: flex;
+            align-items: center;
+            justify-content: center;
             color: white;
-            border: none;
-            padding: 14px 28px;
-            border-radius: 8px;
+            font-size: 18px;
+        }
+
+        .tools-section {
+            flex: 1;
+            padding: 15px;
+            overflow-y: auto;
+        }
+
+        .tools-section h3 {
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            color: var(--muted);
+            margin-bottom: 12px;
+            padding: 0 10px;
+        }
+
+        .tool-card {
+            background: var(--card);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            padding: 15px;
+            margin-bottom: 10px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .tool-card:hover {
+            background: var(--surface);
+            border-color: var(--accent);
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(58, 134, 255, 0.15);
+        }
+
+        .tool-card.active {
+            background: var(--accent);
+            border-color: var(--accent);
+            color: white;
+        }
+
+        .tool-card.active .tool-description {
+            color: rgba(255, 255, 255, 0.8);
+        }
+
+        .tool-card.completed {
+            border-color: #10B981;
+            background: rgba(16, 185, 129, 0.1);
+        }
+
+        .tool-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 8px;
+        }
+
+        .tool-title {
+            font-weight: 600;
             font-size: 14px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .tool-icon {
+            font-size: 18px;
+        }
+
+        .tool-status {
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            border: 2px solid var(--border);
+            transition: all 0.2s;
+        }
+
+        .tool-card.completed .tool-status {
+            background: #10B981;
+            border-color: #10B981;
+            position: relative;
+        }
+
+        .tool-card.completed .tool-status::after {
+            content: '✓';
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            color: white;
+            font-size: 12px;
+            font-weight: bold;
+        }
+
+        .tool-description {
+            font-size: 12px;
+            color: var(--muted);
+            line-height: 1.4;
+        }
+
+        .tool-controls {
+            margin-top: 10px;
+            display: flex;
+            gap: 8px;
+            align-items: center;
+        }
+
+        .spinbox {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            padding: 4px 8px;
+        }
+
+        .spinbox button {
+            background: none;
+            border: none;
+            color: var(--text);
+            cursor: pointer;
+            padding: 2px 6px;
+            font-size: 14px;
+            font-weight: bold;
+        }
+
+        .spinbox button:hover {
+            color: var(--accent);
+        }
+
+        .spinbox span {
+            min-width: 25px;
+            text-align: center;
+            font-size: 13px;
+            font-weight: 600;
+        }
+
+        .scale-select {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            padding: 6px 10px;
+            color: var(--text);
+            font-size: 12px;
+            cursor: pointer;
+            flex: 1;
+        }
+
+        .budget-input {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            padding: 6px 10px;
+            color: var(--text);
+            font-size: 12px;
+            width: 100px;
+        }
+
+        /* ===== MAIN AREA ===== */
+        .main-area {
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+            overflow: hidden;
+        }
+
+        .top-bar {
+            background: var(--surface);
+            border-bottom: 1px solid var(--border);
+            padding: 15px 20px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .top-bar-left {
+            display: flex;
+            gap: 10px;
+        }
+
+        .btn {
+            background: var(--accent);
+            color: white;
+            border: 2px solid var(--accent-border);
+            border-radius: 8px;
+            padding: 10px 20px;
+            font-size: 13px;
             font-weight: 600;
             cursor: pointer;
-            margin-top: 10px;
+            transition: all 0.2s;
+            display: flex;
+            align-items: center;
+            gap: 8px;
         }
-        button:hover { background: #5568d3; }
-        button:disabled {
-            background: #ccc;
+
+        .btn:hover {
+            background: var(--hover);
+            transform: translateY(-1px);
+        }
+
+        .btn.secondary {
+            background: var(--card);
+            color: var(--text);
+            border-color: var(--border);
+        }
+
+        .btn.secondary:hover {
+            border-color: var(--accent);
+        }
+
+        .btn:disabled {
+            opacity: 0.5;
             cursor: not-allowed;
         }
-        .result {
-            background: #f8f9fa;
-            padding: 20px;
+
+        .theme-toggle {
+            background: var(--card);
+            border: 1px solid var(--border);
             border-radius: 8px;
-            margin-top: 20px;
-            border-left: 4px solid #667eea;
+            padding: 10px;
+            cursor: pointer;
+            font-size: 18px;
+            transition: all 0.2s;
         }
-        .result pre {
-            background: white;
+
+        .theme-toggle:hover {
+            border-color: var(--accent);
+        }
+
+        .chat-area {
+            flex: 1;
+            display: flex;
+            overflow: hidden;
+        }
+
+        .chat-container {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        .chat-messages {
+            flex: 1;
+            overflow-y: auto;
+            padding: 20px;
+            background: var(--bg);
+        }
+
+        .message {
+            margin-bottom: 20px;
+            animation: fadeIn 0.3s;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .message-header {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 8px;
+        }
+
+        .message-avatar {
+            width: 32px;
+            height: 32px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, var(--accent) 0%, var(--hover) 100%);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-size: 16px;
+            font-weight: 600;
+        }
+
+        .message-role {
+            font-weight: 600;
+            font-size: 14px;
+        }
+
+        .message-content {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
             padding: 15px;
+            margin-left: 42px;
+        }
+
+        .message-content pre {
+            background: var(--card);
+            border: 1px solid var(--border);
             border-radius: 6px;
+            padding: 12px;
             overflow-x: auto;
             font-size: 12px;
+            line-height: 1.5;
+            margin-top: 10px;
         }
-        .message {
-            padding: 12px;
+
+        .message-content h3 {
+            color: var(--accent);
+            margin-bottom: 10px;
+            font-size: 16px;
+        }
+
+        .bottom-panel {
+            background: var(--surface);
+            border-top: 1px solid var(--border);
+            padding: 15px 20px;
+        }
+
+        .brief-container {
+            display: flex;
+            gap: 10px;
+            align-items: stretch;
+        }
+
+        .brief-input {
+            flex: 1;
+            background: var(--card);
+            border: 1px solid var(--border);
             border-radius: 8px;
-            margin-bottom: 15px;
-            display: none;
+            padding: 12px;
+            color: var(--text);
+            font-size: 14px;
+            resize: none;
+            font-family: inherit;
+            min-height: 50px;
         }
-        .message.show { display: block; }
-        .message.success { background: #d4edda; color: #155724; }
-        .message.error { background: #f8d7da; color: #721c24; }
+
+        .brief-input:focus {
+            outline: none;
+            border-color: var(--accent);
+        }
+
+        .brief-input::placeholder {
+            color: var(--muted);
+        }
+
+        /* ===== MODAL ===== */
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.7);
+            z-index: 1000;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .modal.show {
+            display: flex;
+        }
+
+        .modal-content {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 16px;
+            padding: 30px;
+            max-width: 500px;
+            width: 90%;
+            max-height: 80vh;
+            overflow-y: auto;
+        }
+
+        .modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+
+        .modal-title {
+            font-size: 20px;
+            font-weight: 700;
+        }
+
+        .modal-close {
+            background: none;
+            border: none;
+            font-size: 24px;
+            color: var(--muted);
+            cursor: pointer;
+            padding: 0;
+            width: 32px;
+            height: 32px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 6px;
+        }
+
+        .modal-close:hover {
+            background: var(--card);
+            color: var(--text);
+        }
+
+        .form-group {
+            margin-bottom: 20px;
+        }
+
+        .form-label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 600;
+            font-size: 14px;
+        }
+
+        .form-input {
+            width: 100%;
+            background: var(--card);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 12px;
+            color: var(--text);
+            font-size: 14px;
+        }
+
+        .form-input:focus {
+            outline: none;
+            border-color: var(--accent);
+        }
+
+        .form-hint {
+            font-size: 12px;
+            color: var(--muted);
+            margin-top: 5px;
+        }
+
+        /* ===== LOADING ===== */
+        .loading {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .spinner {
+            width: 16px;
+            height: 16px;
+            border: 2px solid var(--border);
+            border-top-color: var(--accent);
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        /* ===== SCROLLBAR ===== */
+        ::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: var(--bg);
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: var(--border);
+            border-radius: 4px;
+        }
+
+        ::-webkit-scrollbar-thumb:hover {
+            background: var(--accent);
+        }
+
+        /* ===== RESPONSIVE ===== */
+        @media (max-width: 768px) {
+            .container {
+                grid-template-columns: 1fr;
+            }
+
+            .sidebar {
+                display: none;
+            }
+        }
     </style>
 </head>
-<body>
+<body data-theme="dark">
     <div class="container">
-        <h1>🚀 InnuendoAI</h1>
-        
-        <div id="message" class="message"></div>
-        
-        <div class="section">
-            <h3>🔑 API Key OpenRouter</h3>
-            <input type="password" id="apiKey" placeholder="sk-or-v1-...">
-            <button onclick="saveApiKey()">Salva</button>
-            <small style="display:block;margin-top:5px;color:#666;">
-                Ottieni gratis su <a href="https://openrouter.ai/keys" target="_blank">openrouter.ai/keys</a>
-            </small>
+        <!-- SIDEBAR -->
+        <div class="sidebar">
+            <div class="sidebar-header">
+                <div class="logo">
+                    <div class="logo-icon">🚀</div>
+                    <span>InnuendoAI</span>
+                </div>
+            </div>
+
+            <div class="tools-section">
+                <h3>Pipeline Analisi</h3>
+
+                <!-- Development -->
+                <div class="tool-card" data-tool="development">
+                    <div class="tool-header">
+                        <div class="tool-title">
+                            <span class="tool-icon">📐</span>
+                            <span>Sviluppo</span>
+                        </div>
+                        <div class="tool-status"></div>
+                    </div>
+                    <div class="tool-description">
+                        Identificazione delle caratteristiche tecniche e funzionali necessarie per la realizzazione del prodotto.
+                    </div>
+                    <div class="tool-controls">
+                        <div class="spinbox">
+                            <button onclick="adjustSpin('development', -1)">−</button>
+                            <span id="spin-development">3</span>
+                            <button onclick="adjustSpin('development', 1)">+</button>
+                        </div>
+                        <select class="scale-select" id="scale-development">
+                            <option value="Grande azienda">Grande azienda</option>
+                            <option value="PMI" selected>PMI</option>
+                            <option value="Startup/Fai-da-te">Startup/Fai-da-te</option>
+                        </select>
+                    </div>
+                </div>
+
+                <!-- Target -->
+                <div class="tool-card" data-tool="target">
+                    <div class="tool-header">
+                        <div class="tool-title">
+                            <span class="tool-icon">🎯</span>
+                            <span>Analisi Settore</span>
+                        </div>
+                        <div class="tool-status"></div>
+                    </div>
+                    <div class="tool-description">
+                        Segmentazione del mercato attraverso lo studio delle Buyer Personas e l'analisi Eurisko.
+                    </div>
+                    <div class="tool-controls">
+                        <div class="spinbox">
+                            <button onclick="adjustSpin('target', -1)">−</button>
+                            <span id="spin-target">2</span>
+                            <button onclick="adjustSpin('target', 1)">+</button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Competitors -->
+                <div class="tool-card" data-tool="competitors">
+                    <div class="tool-header">
+                        <div class="tool-title">
+                            <span class="tool-icon">🏢</span>
+                            <span>Concorrenza</span>
+                        </div>
+                        <div class="tool-status"></div>
+                    </div>
+                    <div class="tool-description">
+                        Monitoraggio e analisi dei diretti concorrenti per individuare i benchmark di settore.
+                    </div>
+                    <div class="tool-controls">
+                        <div class="spinbox">
+                            <button onclick="adjustSpin('competitors', -1)">−</button>
+                            <span id="spin-competitors">3</span>
+                            <button onclick="adjustSpin('competitors', 1)">+</button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- SWOT -->
+                <div class="tool-card" data-tool="swot">
+                    <div class="tool-header">
+                        <div class="tool-title">
+                            <span class="tool-icon">📊</span>
+                            <span>SWOT</span>
+                        </div>
+                        <div class="tool-status"></div>
+                    </div>
+                    <div class="tool-description">
+                        Valutazione analitica delle dinamiche interne ed esterne che influenzano il potenziale del progetto.
+                    </div>
+                </div>
+
+                <!-- Naming -->
+                <div class="tool-card" data-tool="naming">
+                    <div class="tool-header">
+                        <div class="tool-title">
+                            <span class="tool-icon">✍️</span>
+                            <span>Nome</span>
+                        </div>
+                        <div class="tool-status"></div>
+                    </div>
+                    <div class="tool-description">
+                        Studio e generazione di opzioni nominali orientate al posizionamento del brand sul mercato.
+                    </div>
+                </div>
+
+                <!-- Copywriting -->
+                <div class="tool-card" data-tool="copywriting">
+                    <div class="tool-header">
+                        <div class="tool-title">
+                            <span class="tool-icon">📝</span>
+                            <span>Scrittura</span>
+                        </div>
+                        <div class="tool-status"></div>
+                    </div>
+                    <div class="tool-description">
+                        Generazione copy persuasivo basato su neuromarketing: ormoni, cervello trino, ganci emotivi.
+                    </div>
+                    <div class="tool-controls">
+                        <div class="spinbox">
+                            <button onclick="adjustSpin('copywriting', -1)">−</button>
+                            <span id="spin-copywriting">3</span>
+                            <button onclick="adjustSpin('copywriting', 1)">+</button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Pricing -->
+                <div class="tool-card" data-tool="pricing">
+                    <div class="tool-header">
+                        <div class="tool-title">
+                            <span class="tool-icon">💰</span>
+                            <span>Pricing</span>
+                        </div>
+                        <div class="tool-status"></div>
+                    </div>
+                    <div class="tool-description">
+                        Analisi delle fasce di prezzo per il posizionamento: alto, medio e basso.
+                    </div>
+                </div>
+
+                <!-- ADV -->
+                <div class="tool-card" data-tool="adv">
+                    <div class="tool-header">
+                        <div class="tool-title">
+                            <span class="tool-icon">📣</span>
+                            <span>Campagna Pubblicitaria</span>
+                        </div>
+                        <div class="tool-status"></div>
+                    </div>
+                    <div class="tool-description">
+                        Elaborazione del piano di comunicazione e allocazione del budget pubblicitario.
+                    </div>
+                    <div class="tool-controls">
+                        <div class="spinbox">
+                            <button onclick="adjustSpin('adv', -1)">−</button>
+                            <span id="spin-adv">2</span>
+                            <button onclick="adjustSpin('adv', 1)">+</button>
+                        </div>
+                        <input type="text" class="budget-input" id="budget-adv" placeholder="Budget €" value="5000">
+                    </div>
+                </div>
+
+                <!-- Risk -->
+                <div class="tool-card" data-tool="risk">
+                    <div class="tool-header">
+                        <div class="tool-title">
+                            <span class="tool-icon">⚠️</span>
+                            <span>Analisi Pre-Mortem</span>
+                        </div>
+                        <div class="tool-status"></div>
+                    </div>
+                    <div class="tool-description">
+                        Simulazione preventiva delle criticità operative e dei fattori di rischio esterni.
+                    </div>
+                </div>
+            </div>
         </div>
-        
-        <div class="section">
-            <h3>📝 Brief del Tuo Progetto</h3>
-            <textarea id="brief" placeholder="Esempio: App mobile per fitness con AI personal trainer"></textarea>
+
+        <!-- MAIN AREA -->
+        <div class="main-area">
+            <div class="top-bar">
+                <div class="top-bar-left">
+                    <button class="btn" onclick="showSettings()">
+                        ⚙️ Impostazioni
+                    </button>
+                    <button class="btn secondary" onclick="newProject()">
+                        🆕 Nuovo Progetto
+                    </button>
+                    <button class="btn secondary" onclick="downloadProject()">
+                        📥 Scarica JSON
+                    </button>
+                </div>
+                <button class="theme-toggle" onclick="toggleTheme()">
+                    <span id="theme-icon">☀️</span>
+                </button>
+            </div>
+
+            <div class="chat-area">
+                <div class="chat-container">
+                    <div class="chat-messages" id="chatMessages">
+                        <div class="message">
+                            <div class="message-header">
+                                <div class="message-avatar">AI</div>
+                                <span class="message-role">InnuendoAI</span>
+                            </div>
+                            <div class="message-content">
+                                <h3>👋 Benvenuto!</h3>
+                                <p>Sono il tuo assistente per la pre-incubazione startup.</p>
+                                <p style="margin-top: 10px;">Per iniziare:</p>
+                                <p>1. Configura la tua API Key nelle impostazioni ⚙️</p>
+                                <p>2. Inserisci il brief del tuo progetto qui sotto</p>
+                                <p>3. Click sui tool nella sidebar per avviare l'analisi</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="bottom-panel">
+                        <div class="brief-container">
+                            <textarea 
+                                class="brief-input" 
+                                id="briefInput" 
+                                placeholder="Inserisci il brief del tuo progetto startup...&#10;&#10;Esempio: App mobile per fitness con AI personal trainer integrato che crea schede personalizzate"
+                            ></textarea>
+                            <button class="btn" onclick="saveBrief()" style="align-self: flex-end;">
+                                💾 Salva Brief
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
         </div>
-        
-        <div class="section">
-            <button onclick="runAnalysis()" id="runBtn">▶ Analizza Progetto</button>
-        </div>
-        
-        <div id="results"></div>
     </div>
+
+    <!-- SETTINGS MODAL -->
+    <div class="modal" id="settingsModal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 class="modal-title">⚙️ Impostazioni</h2>
+                <button class="modal-close" onclick="closeSettings()">×</button>
+            </div>
+            
+            <div class="form-group">
+                <label class="form-label">🔑 API Key OpenRouter</label>
+                <input 
+                    type="password" 
+                    class="form-input" 
+                    id="apiKeyInput" 
+                    placeholder="sk-or-v1-..."
+                >
+                <p class="form-hint">
+                    Ottieni la tua chiave gratuita su 
+                    <a href="https://openrouter.ai/keys" target="_blank" style="color: var(--accent);">openrouter.ai/keys</a>
+                </p>
+            </div>
+
+            <div class="form-group">
+                <label class="form-label">🤖 Modello LLM</label>
+                <select class="form-input" id="modelSelect">
+                    <option value="google/gemma-2-9b-it:free">Gemma 2 9B (Gratis)</option>
+                    <option value="meta-llama/llama-3.1-8b-instruct:free">Llama 3.1 8B (Gratis)</option>
+                    <option value="mistralai/mistral-7b-instruct:free">Mistral 7B (Gratis)</option>
+                </select>
+            </div>
+
+            <button class="btn" onclick="saveSettings()" style="width: 100%;">
+                💾 Salva Impostazioni
+            </button>
+        </div>
+    </div>
+
+    <script src="app.js"></script>
 </body>
 </html>
