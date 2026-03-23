@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>InnuendoAI</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: system-ui, -apple-system, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 16px;
+            padding: 40px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+        }
+        h1 { color: #667eea; margin-bottom: 30px; }
+        .section { margin-bottom: 25px; }
+        .section h3 { margin-bottom: 10px; color: #333; }
+        input, textarea {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            font-size: 14px;
+            font-family: inherit;
+        }
+        input:focus, textarea:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+        textarea { min-height: 120px; resize: vertical; }
+        button {
+            background: #667eea;
+            color: white;
+            border: none;
+            padding: 14px 28px;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            margin-top: 10px;
+        }
+        button:hover { background: #5568d3; }
+        button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+        .result {
+            background: #f8f9fa;
+            padding: 20px;
+            border-radius: 8px;
+            margin-top: 20px;
+            border-left: 4px solid #667eea;
+        }
+        .result pre {
+            background: white;
+            padding: 15px;
+            border-radius: 6px;
+            overflow-x: auto;
+            font-size: 12px;
+        }
+        .message {
+            padding: 12px;
+            border-radius: 8px;
+            margin-bottom: 15px;
+            display: none;
+        }
+        .message.show { display: block; }
+        .message.success { background: #d4edda; color: #155724; }
+        .message.error { background: #f8d7da; color: #721c24; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🚀 InnuendoAI</h1>
+        
+        <div id="message" class="message"></div>
+        
+        <div class="section">
+            <h3>🔑 API Key OpenRouter</h3>
+            <input type="password" id="apiKey" placeholder="sk-or-v1-...">
+            <button onclick="saveApiKey()">Salva</button>
+            <small style="display:block;margin-top:5px;color:#666;">
+                Ottieni gratis su <a href="https://openrouter.ai/keys" target="_blank">openrouter.ai/keys</a>
+            </small>
+        </div>
+        
+        <div class="section">
+            <h3>📝 Brief del Tuo Progetto</h3>
+            <textarea id="brief" placeholder="Esempio: App mobile per fitness con AI personal trainer"></textarea>
+        </div>
+        
+        <div class="section">
+            <button onclick="runAnalysis()" id="runBtn">▶ Analizza Progetto</button>
+        </div>
+        
+        <div id="results"></div>
+    </div>
+</body>
+</html>
