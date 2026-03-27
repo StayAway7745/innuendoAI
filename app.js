@@ -18,7 +18,7 @@ let projectState = {
 
 let config = {
     apiKey: '',
-    model: 'google/gemma-2-9b-it:free',
+    model: 'arcee-ai/trinity-large-preview:free',
     num_hypotheses: 3,
     project_scale: 'PMI',
     num_personas: 2,
@@ -64,6 +64,17 @@ function loadFromLocalStorage() {
     }
 }
 
+function refreshProjectStateFromStorage() {
+    const savedState = localStorage.getItem('innuendoai_project_state');
+    if (!savedState) return;
+    try {
+        projectState = JSON.parse(savedState);
+        updateCompletedTools();
+    } catch (e) {
+        console.error('Error refreshing state:', e);
+    }
+}
+
 function saveToLocalStorage() {
     localStorage.setItem('innuendoai_project_state', JSON.stringify(projectState));
 }
@@ -85,10 +96,23 @@ function updateCompletedTools() {
 }
 
 function updateToolCards() {
-    completedTools.forEach(toolName => {
-        const card = document.querySelector(`.tool-card[data-tool="${toolName}"]`);
-        if (card) card.classList.add('completed');
+    document.querySelectorAll('.tool-card[data-tool]').forEach(card => {
+        const toolName = card.getAttribute('data-tool');
+        if (completedTools.has(toolName)) {
+            card.classList.add('completed');
+            setToolButtonState(toolName, 'done');
+        } else {
+            card.classList.remove('completed');
+            setToolButtonState(toolName, 'idle');
+        }
     });
+}
+
+function refreshConfigFromStorage() {
+    const savedApiKey = localStorage.getItem('innuendoai_api_key');
+    const savedModel = localStorage.getItem('innuendoai_model');
+    if (savedApiKey) config.apiKey = savedApiKey;
+    if (savedModel) config.model = savedModel;
 }
 
 // ========================================
@@ -122,23 +146,26 @@ function toggleTheme() {
 }
 
 function showSettings() {
-    const modal = document.getElementById('settingsModal');
-    const apiKeyInput = document.getElementById('apiKeyInput');
-    const modelSelect = document.getElementById('modelSelect');
-    
-    apiKeyInput.value = config.apiKey;
-    modelSelect.value = config.model;
-    
-    modal.classList.add('show');
+    const modal = document.getElementById('settings-modal');
+    if (!modal) return;
+    const apiKeyInput = document.getElementById('api-key');
+    const modelInput = document.getElementById('model-input');
+    if (apiKeyInput) apiKeyInput.value = config.apiKey || '';
+    if (modelInput) modelInput.value = config.model || '';
+    modal.classList.add('active');
+    modal.setAttribute('aria-hidden', 'false');
 }
 
 function closeSettings() {
-    document.getElementById('settingsModal').classList.remove('show');
+    const modal = document.getElementById('settings-modal');
+    if (!modal) return;
+    modal.classList.remove('active');
+    modal.setAttribute('aria-hidden', 'true');
 }
 
 function saveSettings() {
-    const apiKey = document.getElementById('apiKeyInput').value;
-    const model = document.getElementById('modelSelect').value;
+    const apiKey = document.getElementById('api-key')?.value || '';
+    const model = document.getElementById('model-input')?.value || '';
     
     if (!apiKey) {
         addMessage('system', '⚠️ Inserisci una API Key valida');
@@ -245,15 +272,37 @@ function addMessage(role, content, data = null) {
 // TOOL EXECUTION
 // ========================================
 
-// Add click handlers to tool cards
-document.querySelectorAll('.tool-card').forEach(card => {
-    card.addEventListener('click', () => {
-        const toolName = card.getAttribute('data-tool');
+function getToolButton(toolName) {
+    return document.querySelector(`.tool-play[data-tool="${toolName}"]`);
+}
+
+function setToolButtonState(toolName, state) {
+    const btn = getToolButton(toolName);
+    if (!btn) return;
+    btn.classList.remove('loading', 'done');
+    if (state === 'loading') {
+        btn.classList.add('loading');
+        btn.textContent = '⏳';
+    } else if (state === 'done') {
+        btn.classList.add('done');
+        btn.textContent = '↻';
+    } else {
+        btn.textContent = '▶';
+    }
+}
+
+// Add click handlers to play buttons
+document.querySelectorAll('.tool-play[data-tool]').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const toolName = btn.getAttribute('data-tool');
         runTool(toolName);
     });
 });
 
 async function runTool(toolName) {
+    refreshConfigFromStorage();
+    refreshProjectStateFromStorage();
     // Validate
     if (!config.apiKey) {
         addMessage('system', '⚠️ Configura prima la API Key nelle impostazioni');
@@ -261,6 +310,13 @@ async function runTool(toolName) {
         return;
     }
     
+    const briefInput = document.getElementById('briefInput');
+    const briefText = briefInput ? briefInput.value.trim() : '';
+    if (briefText && !projectState.project.brief_originale) {
+        projectState.project.brief_originale = briefText;
+        saveToLocalStorage();
+    }
+
     if (!projectState.project.brief_originale) {
         addMessage('system', '⚠️ Inserisci prima il brief del progetto');
         return;
@@ -289,6 +345,7 @@ async function runTool(toolName) {
         return;
     }
     
+    setToolButtonState(toolName, 'loading');
     addMessage('system', `⏳ ${toolName.toUpperCase()} in esecuzione...`);
     
     try {
@@ -312,11 +369,13 @@ async function runTool(toolName) {
         
         // Update UI
         document.querySelector(`.tool-card[data-tool="${toolName}"]`)?.classList.add('completed');
+        setToolButtonState(toolName, 'done');
         saveToLocalStorage();
         
         addMessage('ai', `✅ ${toolName.toUpperCase()} completato!`, result);
         
     } catch (error) {
+        setToolButtonState(toolName, completedTools.has(toolName) ? 'done' : 'idle');
         addMessage('system', `❌ Errore: ${error.message}`);
     }
 }
@@ -344,8 +403,22 @@ async function callLLM(prompt, agentType = 'analitico') {
     });
     
     if (!response.ok) {
-        const error = await response.text();
-        throw new Error(`API Error (${response.status}): ${error}`);
+        let errorText = '';
+        try {
+            errorText = await response.text();
+        } catch (e) {
+            errorText = '';
+        }
+        if (response.status === 401) {
+            throw new Error('API Key non valida o utente non trovato. Controlla le impostazioni.');
+        }
+        if (response.status === 403) {
+            throw new Error('Accesso negato. Verifica permessi e API Key.');
+        }
+        if (response.status === 429) {
+            throw new Error('Troppe richieste. Riprova tra poco.');
+        }
+        throw new Error(`API Error (${response.status}): ${errorText}`);
     }
     
     const data = await response.json();
@@ -419,7 +492,7 @@ Rispondi SOLO JSON in italiano.
 `;
     
     const response = await callLLM(prompt, 'analitico');
-    return JSON.parse(response);
+    return parseJsonResponse(response);
 }
 
 async function runTarget() {
@@ -457,7 +530,7 @@ Rispondi SOLO JSON in italiano.
 `;
     
     const response = await callLLM(prompt, 'analitico');
-    return JSON.parse(response);
+    return parseJsonResponse(response);
 }
 
 async function runCompetitors() {
@@ -488,7 +561,7 @@ Rispondi SOLO JSON in italiano.
 `;
     
     const response = await callLLM(prompt, 'analitico');
-    return JSON.parse(response);
+    return parseJsonResponse(response);
 }
 
 async function runSWOT() {
@@ -527,7 +600,7 @@ Rispondi SOLO JSON in italiano.
 `;
     
     const response = await callLLM(prompt, 'analitico');
-    return JSON.parse(response);
+    return parseJsonResponse(response);
 }
 
 async function runNaming() {
@@ -560,7 +633,7 @@ Rispondi SOLO JSON in italiano.
 `;
     
     const response = await callLLM(prompt, 'creativo');
-    return JSON.parse(response);
+    return parseJsonResponse(response);
 }
 
 async function runCopywriting() {
@@ -606,7 +679,7 @@ Rispondi SOLO JSON in italiano.
 `;
     
     const response = await callLLM(prompt, 'creativo');
-    return JSON.parse(response);
+    return parseJsonResponse(response);
 }
 
 async function runPricing() {
@@ -661,7 +734,7 @@ Rispondi SOLO JSON in italiano.
 `;
     
     const response = await callLLM(prompt, 'analitico');
-    return JSON.parse(response);
+    return parseJsonResponse(response);
 }
 
 async function runADV() {
@@ -720,7 +793,7 @@ Rispondi SOLO JSON in italiano.
 `;
     
     const response = await callLLM(prompt, 'analitico');
-    return JSON.parse(response);
+    return parseJsonResponse(response);
 }
 
 async function runRisk() {
@@ -752,5 +825,37 @@ Rispondi SOLO JSON in italiano.
 `;
     
     const response = await callLLM(prompt, 'analitico');
-    return JSON.parse(response);
+    return parseJsonResponse(response);
+}
+
+// ========================================
+// JSON PARSER (handles code fences)
+// ========================================
+
+function parseJsonResponse(rawText) {
+    if (!rawText || typeof rawText !== 'string') {
+        throw new Error('Risposta vuota o non valida dal modello.');
+    }
+
+    let text = rawText.trim();
+
+    // Remove ```json or ``` fences
+    if (text.startsWith('```')) {
+        text = text.replace(/^```[a-zA-Z]*\s*/m, '');
+        text = text.replace(/```$/m, '').trim();
+    }
+
+    // Try direct parse
+    try {
+        return JSON.parse(text);
+    } catch (e) {
+        // Fallback: extract first JSON block
+        const firstBrace = text.indexOf('{');
+        const lastBrace = text.lastIndexOf('}');
+        if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
+            const slice = text.slice(firstBrace, lastBrace + 1);
+            return JSON.parse(slice);
+        }
+        throw new Error('Risposta non in JSON valido. Prova a rigenerare il tool.');
+    }
 }

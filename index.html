@@ -171,6 +171,15 @@
 
         .tool-play:hover { background: var(--hover); }
 
+        .tool-play.loading {
+            background: var(--hover);
+            cursor: progress;
+        }
+
+        .tool-play.done {
+            background: var(--accent);
+        }
+
         .spinbox {
             display: inline-flex;
             align-items: center;
@@ -190,6 +199,11 @@
             outline: none;
             appearance: textfield;
             -moz-appearance: textfield;
+            cursor: ns-resize;
+        }
+
+        .spinbox input.dragging {
+            cursor: ns-resize;
         }
 
         .spinbox input::-webkit-outer-spin-button,
@@ -465,9 +479,9 @@
         <!-- TOOL SIDEBAR -->
         <aside class="tools-sidebar">
             <section class="tool-strip">
-                <article class="tool-card">
+                <article class="tool-card" data-tool="development">
                     <div class="tool-header">
-                        <button class="tool-play">▶</button>
+                        <button class="tool-play" data-tool="development">▶</button>
                         <div class="tool-title">📌 Sviluppo</div>
                         <div class="tool-controls">
                             <div class="spinbox">
@@ -482,9 +496,9 @@
                     <div class="tool-description">Identificazione delle caratteristiche tecniche e funzionali necessarie per la realizzazione del prodotto.</div>
                 </article>
 
-                <article class="tool-card">
+                <article class="tool-card" data-tool="target">
                     <div class="tool-header">
-                        <button class="tool-play">▶</button>
+                        <button class="tool-play" data-tool="target">▶</button>
                         <div class="tool-title">🎯 Analisi settore</div>
                         <div class="tool-controls">
                             <div class="spinbox">
@@ -499,9 +513,9 @@
                     <div class="tool-description">Segmentazione del mercato attraverso lo studio delle Buyer Personas e l'analisi dei profili socioculturali basata sulla Grande Mappa di GfK Eurisko.</div>
                 </article>
 
-                <article class="tool-card">
+                <article class="tool-card" data-tool="competitors">
                     <div class="tool-header">
-                        <button class="tool-play">▶</button>
+                        <button class="tool-play" data-tool="competitors">▶</button>
                         <div class="tool-title">🏢 Concorrenza</div>
                         <div class="tool-controls">
                             <div class="spinbox">
@@ -516,25 +530,25 @@
                     <div class="tool-description">Monitoraggio e analisi dei diretti concorrenti per individuare i benchmark di settore.</div>
                 </article>
 
-                <article class="tool-card">
+                <article class="tool-card" data-tool="swot">
                     <div class="tool-header">
-                        <button class="tool-play">▶</button>
+                        <button class="tool-play" data-tool="swot">▶</button>
                         <div class="tool-title">📊 SWOT</div>
                     </div>
                     <div class="tool-description">Valutazione analitica delle dinamiche interne ed esterne che influenzano il potenziale del progetto.</div>
                 </article>
 
-                <article class="tool-card">
+                <article class="tool-card" data-tool="pricing">
                     <div class="tool-header">
-                        <button class="tool-play">▶</button>
+                        <button class="tool-play" data-tool="pricing">▶</button>
                         <div class="tool-title">💶 Prezzo</div>
                     </div>
                     <div class="tool-description">Definizione di tre fasce prezzo (alto/medio/basso) e scelta del posizionamento economico consigliato.</div>
                 </article>
 
-                <article class="tool-card">
+                <article class="tool-card" data-tool="adv">
                     <div class="tool-header">
-                        <button class="tool-play">▶</button>
+                        <button class="tool-play" data-tool="adv">▶</button>
                         <div class="tool-title">📣 Campagna pubblicitaria</div>
                         <div class="tool-controls">
                             <div class="spinbox">
@@ -549,9 +563,9 @@
                     <div class="tool-description">Elaborazione del piano di comunicazione e allocazione del budget pubblicitario per la promozione.</div>
                 </article>
 
-                <article class="tool-card">
+                <article class="tool-card" data-tool="copywriting">
                     <div class="tool-header">
-                        <button class="tool-play">▶</button>
+                        <button class="tool-play" data-tool="copywriting">▶</button>
                         <div class="tool-title">✍️ Scrittura</div>
                         <div class="tool-controls">
                             <div class="spinbox">
@@ -566,9 +580,9 @@
                     <div class="tool-description">Generazione copy persuasivo basato su neuromarketing: ormoni, cervello trino, ganci emotivi.</div>
                 </article>
 
-                <article class="tool-card">
+                <article class="tool-card" data-tool="risk">
                     <div class="tool-header">
-                        <button class="tool-play">▶</button>
+                        <button class="tool-play" data-tool="risk">▶</button>
                         <div class="tool-title">⚠️ Analisi Pre-Mortem</div>
                     </div>
                     <div class="tool-description">Simulazione preventiva delle criticità operative e dei fattori di rischio esterni.</div>
@@ -596,7 +610,7 @@
                     <strong style="text-align:right;">AI Manager</strong>
                 </div>
                 <div class="chat-panels">
-                    <div class="chat-panel"></div>
+                    <div class="chat-panel" id="chatMessages"></div>
                     <div class="sash" role="separator" aria-orientation="vertical" tabindex="0"></div>
                     <div class="chat-panel"></div>
                 </div>
@@ -605,8 +619,8 @@
             <!-- BOTTOM BRIEF -->
             <section class="bottom-brief">
                 <span class="brief-label">BRIEF:</span>
-                <input class="brief-input" type="text" placeholder="Scrivi qui il brief del progetto e clicca Play su un tool..." />
-                <select class="scale-select" title="Seleziona la scala del progetto">
+                <input class="brief-input" id="briefInput" type="text" placeholder="Scrivi qui il brief del progetto e clicca Play su un tool..." />
+                <select class="scale-select" id="scale-development" title="Seleziona la scala del progetto">
                     <option>Grande azienda</option>
                     <option selected>PMI</option>
                     <option>Start-up/Fai-da-te</option>
@@ -810,9 +824,9 @@
 
         const providerHints = {
             openrouter: {
-                help: "Incolla il nome completo del modello (es: google/gemma-3-27b-it:free)",
+                help: "Incolla il nome completo del modello (es: arcee-ai/trinity-large-preview:free)",
                 placeholder: "provider/model-name:free",
-                defaultModel: "google/gemma-3-27b-it:free",
+                defaultModel: "arcee-ai/trinity-large-preview:free",
             },
             openai: {
                 help: "Nome del modello OpenAI (es: gpt-4o-mini, gpt-4-turbo)",
@@ -837,6 +851,17 @@
         };
 
         function openSettings() {
+            const savedApiKey = localStorage.getItem("innuendoai_api_key") || "";
+            const savedModel = localStorage.getItem("innuendoai_model") || "";
+            const savedProvider = localStorage.getItem("innuendoai_provider") || "openrouter";
+            const apiKeyField = document.getElementById("api-key");
+            const modelField = document.getElementById("model-input");
+            if (apiKeyField) apiKeyField.value = savedApiKey;
+            if (modelField) modelField.value = savedModel;
+            providerSelect.value = savedProvider;
+            const hint = providerHints[providerSelect.value];
+            modelHelp.textContent = hint.help;
+            modelInput.placeholder = hint.placeholder;
             settingsModal.classList.add("active");
             settingsModal.setAttribute("aria-hidden", "false");
         }
@@ -883,7 +908,15 @@
             document.body.setAttribute("data-theme", themeToggle.checked ? "dark" : "light");
         });
 
-        settingsSave.addEventListener("click", closeSettings);
+        settingsSave.addEventListener("click", () => {
+            const apiKey = document.getElementById("api-key")?.value || "";
+            const model = document.getElementById("model-input")?.value || "";
+            const provider = document.getElementById("provider-select")?.value || "openrouter";
+            if (apiKey) localStorage.setItem("innuendoai_api_key", apiKey);
+            if (model) localStorage.setItem("innuendoai_model", model);
+            localStorage.setItem("innuendoai_provider", provider);
+            closeSettings();
+        });
 
         // Spinbox UX: custom buttons + keyboard
         document.querySelectorAll(".spinbox").forEach((spinbox) => {
@@ -928,7 +961,32 @@
                 if (e.key === "ArrowUp") setValue(getValue() + step);
                 if (e.key === "ArrowDown") setValue(getValue() - step);
             });
+
+            input.addEventListener("mousedown", (e) => {
+                if (e.button !== 0) return;
+                const startY = e.clientY;
+                const startValue = getValue();
+                input.classList.add("dragging");
+                document.body.style.userSelect = "none";
+
+                const onMove = (ev) => {
+                    const delta = startY - ev.clientY;
+                    const step = ev.shiftKey ? 5 : 1;
+                    const steps = Math.trunc(delta / 8);
+                    setValue(startValue + steps * step);
+                };
+
+                const onUp = () => {
+                    input.classList.remove("dragging");
+                    document.body.style.userSelect = "";
+                    window.removeEventListener("mousemove", onMove);
+                };
+
+                window.addEventListener("mousemove", onMove);
+                window.addEventListener("mouseup", onUp, { once: true });
+            });
         });
     </script>
+    <script src="app.js"></script>
 </body>
 </html>
