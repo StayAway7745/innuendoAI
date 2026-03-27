@@ -127,6 +127,7 @@
             box-shadow: 0 6px 14px rgba(0, 0, 0, 0.2);
         }
 
+
         .tool-header {
             display: flex;
             align-items: center;
@@ -172,12 +173,24 @@
         .tool-play:hover { background: var(--hover); }
 
         .tool-play.loading {
-            background: var(--hover);
+            background: var(--accent);
+            border-color: var(--accent-border);
+            color: white;
             cursor: progress;
         }
 
         .tool-play.done {
             background: var(--accent);
+            border-color: var(--accent-border);
+            color: white;
+        }
+
+        .tool-play.disabled,
+        .tool-play.done.disabled {
+            pointer-events: none;
+            background: var(--border);
+            border-color: var(--border);
+            color: white;
         }
 
         .spinbox {
@@ -228,6 +241,13 @@
             cursor: pointer;
             font-size: 10px;
             line-height: 1;
+        }
+
+        .spinbox-buttons button.disabled {
+            background: var(--border);
+            border-color: var(--border);
+            color: white;
+            pointer-events: none;
         }
 
         .budget-box {
@@ -293,6 +313,7 @@
             gap: 8px;
             flex: 1;
             min-height: 220px;
+            min-height: 0;
         }
 
         .chat-header {
@@ -311,6 +332,7 @@
             grid-template-columns: minmax(220px, 1fr) var(--sash-width) minmax(220px, 1fr);
             column-gap: var(--panel-gap);
             flex: 1;
+            min-height: 0;
         }
 
         .chat-panel {
@@ -320,7 +342,136 @@
             padding: 14px;
             overflow-y: auto;
             font-size: var(--chat-font-size);
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            min-height: 0;
         }
+
+        .manager-input-bar {
+            display: flex;
+            gap: 8px;
+            align-items: center;
+            margin-top: 6px;
+        }
+
+        .manager-input-bar input {
+            flex: 1;
+            background: var(--card);
+            border: 1px solid var(--border);
+            color: var(--text);
+            border-radius: 10px;
+            padding: 10px 12px;
+            font-size: 12px;
+        }
+
+        .manager-input-bar button {
+            background: var(--accent);
+            border: 2px solid var(--accent-border);
+            color: white;
+            border-radius: 10px;
+            padding: 10px 14px;
+            font-size: 12px;
+            font-weight: 700;
+            cursor: pointer;
+        }
+
+        .message-content {
+            white-space: pre-wrap;
+            word-break: break-word;
+            overflow-wrap: anywhere;
+        }
+
+        .message {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+
+        .message-header {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 12px;
+            color: var(--muted);
+        }
+
+        .message-avatar {
+            width: 26px;
+            height: 26px;
+            border-radius: 50%;
+            background: var(--card);
+            display: grid;
+            place-items: center;
+            font-size: 12px;
+            color: var(--text);
+        }
+
+        .message-role {
+            font-weight: 700;
+            color: var(--text);
+        }
+
+        .message-content p {
+            margin: 0 0 8px 0;
+        }
+
+        .message-content code {
+            background: var(--bg);
+            padding: 2px 4px;
+            border-radius: 4px;
+            font-family: "Courier New", monospace;
+            font-size: 12px;
+        }
+
+        .message-content .json-block,
+        .message-content .code-block {
+            background: var(--bg);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 10px;
+            margin: 6px 0 0 0;
+            white-space: pre-wrap;
+            word-break: break-word;
+            overflow-wrap: anywhere;
+            font-family: "Courier New", monospace;
+            font-size: 12px;
+        }
+
+        .result-block {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            margin-top: 6px;
+        }
+
+        .result-row {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+            padding: 4px 0;
+        }
+
+        .result-key {
+            font-weight: 700;
+            font-size: 13px;
+            color: var(--text);
+        }
+
+        .result-body {
+            font-size: 12px;
+            color: var(--text);
+        }
+
+        .result-list {
+            margin: 6px 0 0 18px;
+            padding: 0;
+        }
+
+        .result-list li {
+            margin: 4px 0;
+        }
+
 
         .sash {
             display: flex;
@@ -485,7 +636,7 @@
                         <div class="tool-title">📌 Sviluppo</div>
                         <div class="tool-controls">
                             <div class="spinbox">
-                                <input type="number" value="3" min="1" max="5" />
+                                <input type="number" value="3" min="1" max="5" data-spin="development" />
                                 <div class="spinbox-buttons">
                                     <button>▲</button>
                                     <button>▼</button>
@@ -502,7 +653,7 @@
                         <div class="tool-title">🎯 Analisi settore</div>
                         <div class="tool-controls">
                             <div class="spinbox">
-                                <input type="number" value="3" min="1" max="5" />
+                                <input type="number" value="3" min="1" max="5" data-spin="target" />
                                 <div class="spinbox-buttons">
                                     <button>▲</button>
                                     <button>▼</button>
@@ -519,7 +670,7 @@
                         <div class="tool-title">🏢 Concorrenza</div>
                         <div class="tool-controls">
                             <div class="spinbox">
-                                <input type="number" value="3" min="1" max="5" />
+                                <input type="number" value="3" min="1" max="5" data-spin="competitors" />
                                 <div class="spinbox-buttons">
                                     <button>▲</button>
                                     <button>▼</button>
@@ -552,7 +703,7 @@
                         <div class="tool-title">📣 Campagna pubblicitaria</div>
                         <div class="tool-controls">
                             <div class="spinbox">
-                                <input type="number" value="3" min="1" max="5" />
+                                <input type="number" value="3" min="1" max="5" data-spin="adv" />
                                 <div class="spinbox-buttons">
                                     <button>▲</button>
                                     <button>▼</button>
@@ -569,7 +720,7 @@
                         <div class="tool-title">✍️ Scrittura</div>
                         <div class="tool-controls">
                             <div class="spinbox">
-                                <input type="number" value="3" min="1" max="5" />
+                                <input type="number" value="3" min="1" max="5" data-spin="copywriting" />
                                 <div class="spinbox-buttons">
                                     <button>▲</button>
                                     <button>▼</button>
@@ -612,7 +763,11 @@
                 <div class="chat-panels">
                     <div class="chat-panel" id="chatMessages"></div>
                     <div class="sash" role="separator" aria-orientation="vertical" tabindex="0"></div>
-                    <div class="chat-panel"></div>
+                    <div class="chat-panel" id="managerMessages"></div>
+                </div>
+                <div class="manager-input-bar">
+                    <input id="managerInput" type="text" placeholder="Scrivi al manager..." />
+                    <button id="managerSend">Invia</button>
                 </div>
             </section>
 

@@ -248,24 +248,155 @@ function addMessage(role, content, data = null) {
     const avatarText = role === 'system' ? '🤖' : 'AI';
     const roleName = role === 'system' ? 'Sistema' : 'InnuendoAI';
     
-    let contentHTML = `<p>${content}</p>`;
+    const contentHTML = formatMessageContent(content, data);
     
-    if (data) {
-        contentHTML += `<pre>${JSON.stringify(data, null, 2)}</pre>`;
-    }
-    
-    messageDiv.innerHTML = `
-        <div class="message-header">
-            <div class="message-avatar">${avatarText}</div>
-            <span class="message-role">${roleName}</span>
-        </div>
-        <div class="message-content">
-            ${contentHTML}
-        </div>
-    `;
+    messageDiv.innerHTML =
+        `<div class="message-header">` +
+        `<div class="message-avatar">${avatarText}</div>` +
+        `<span class="message-role">${roleName}</span>` +
+        `</div>` +
+        `<div class="message-content">${contentHTML}</div>`;
     
     messagesContainer.appendChild(messageDiv);
     messagesContainer.scrollTop = messagesContainer.scrollHeight;
+}
+
+function addManagerMessage(role, content) {
+    const messagesContainer = document.getElementById('managerMessages');
+    if (!messagesContainer) return;
+    const messageDiv = document.createElement('div');
+    messageDiv.className = 'message';
+
+    const avatarText = role === 'user' ? 'TU' : 'AI';
+    const roleName = role === 'user' ? 'Tu' : 'AI Manager';
+
+    const contentHTML = formatMessageContent(content || '');
+    messageDiv.innerHTML =
+        `<div class="message-header">` +
+        `<div class="message-avatar">${avatarText}</div>` +
+        `<span class="message-role">${roleName}</span>` +
+        `</div>` +
+        `<div class="message-content">${contentHTML}</div>`;
+
+    messagesContainer.appendChild(messageDiv);
+    messagesContainer.scrollTop = messagesContainer.scrollHeight;
+}
+
+function escapeHtml(text) {
+    return text
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;');
+}
+
+function formatMarkdown(text) {
+    let safe = escapeHtml(text);
+
+    // Code blocks ```...```
+    safe = safe.replace(/```([\s\S]*?)```/g, (_m, code) => {
+        return `<pre class="code-block">${escapeHtml(code.trim())}</pre>`;
+    });
+
+    // Inline code `...`
+    safe = safe.replace(/`([^`]+)`/g, '<code>$1</code>');
+
+    // Bold **...**
+    safe = safe.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+
+    // Italic *...*
+    safe = safe.replace(/\*([^*]+)\*/g, '<em>$1</em>');
+
+    // Newlines to <br>
+    safe = safe.replace(/\r\n/g, '\n').replace(/\n/g, '<br>');
+    return safe;
+}
+
+function formatJsonBlock(data) {
+    const json = JSON.stringify(data, null, 2);
+    return `<pre class="json-block">${escapeHtml(json)}</pre>`;
+}
+
+function prettifyKey(key) {
+    return String(key)
+        .replace(/[_\-]+/g, ' ')
+        .replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+function renderValue(value) {
+    if (value === null || value === undefined) return '';
+    if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
+        return `<span class="result-value">${formatMarkdown(String(value))}</span>`;
+    }
+    if (Array.isArray(value)) {
+        if (value.length === 0) return '';
+        const items = value
+            .map((item) => `<li>${renderValue(item)}</li>`)
+            .join('');
+        return `<ul class="result-list">${items}</ul>`;
+    }
+    if (typeof value === 'object') {
+        return renderObject(value);
+    }
+    return '';
+}
+
+function renderObject(obj) {
+    const entries = Object.entries(obj);
+    if (entries.length === 0) return '';
+    return entries
+        .map(([key, val]) => {
+            const rendered = renderValue(val);
+            if (!rendered) return '';
+            return (
+                `<div class="result-row">` +
+                `<div class="result-key">${prettifyKey(key)}</div>` +
+                `<div class="result-body">${rendered}</div>` +
+                `</div>`
+            );
+        })
+        .join('');
+}
+
+function renderHumanReadable(data) {
+    if (!data || typeof data !== 'object') return '';
+    return `<div class="result-block">${renderObject(data)}</div>`;
+}
+
+function formatMessageContent(content, data) {
+    let html = `<p>${formatMarkdown(content || '')}</p>`;
+    if (data) {
+        html += renderHumanReadable(data);
+    }
+    return html;
+}
+
+function generateManagerResponse(userText) {
+    const lower = userText.toLowerCase();
+    const missing = [];
+    const toolOrder = ['development', 'target', 'competitors', 'swot', 'pricing', 'adv', 'copywriting', 'risk'];
+    toolOrder.forEach(t => {
+        if (!completedTools.has(t)) missing.push(t);
+    });
+
+    if (!projectState.project.brief_originale) {
+        return "Per iniziare, inserisci il brief del progetto nel campo in basso. Poi esegui **Sviluppo**.";
+    }
+
+    if (lower.includes('manca') || lower.includes('cosa')) {
+        if (missing.length === 0) return "Hai completato tutti i tool. Vuoi un riepilogo o una revisione finale?";
+        return `Tool non ancora completati: **${missing.join(', ')}**. Vuoi che ne suggerisca l'ordine?`;
+    }
+
+    if (lower.includes('parametri') || lower.includes('config')) {
+        return `Parametri attuali:\n- ipotesi: ${config.num_hypotheses}\n- personas: ${config.num_personas}\n- competitor: ${config.num_competitor}\n- copy: ${config.num_copy_variants}\n- adv: ${config.num_adv_solutions}\n- scala: ${config.project_scale}`;
+    }
+
+    if (lower.includes('ordine') || lower.includes('prossimo')) {
+        if (missing.length === 0) return "Non ci sono tool mancanti. Vuoi perfezionare un'area specifica?";
+        return `Prossimo suggerito: **${missing[0]}**. Vuoi che lo avvii?`;
+    }
+
+    return "Ok! Dimmi su quale area vuoi che mi concentri (target, pricing, copywriting, adv, rischi).";
 }
 
 // ========================================
@@ -291,6 +422,26 @@ function setToolButtonState(toolName, state) {
     }
 }
 
+function setToolsDisabled(disabled, activeToolName = null) {
+    document.querySelectorAll('.tool-play[data-tool]').forEach(btn => {
+        const toolName = btn.getAttribute('data-tool');
+        const shouldDisable = disabled && toolName !== activeToolName;
+        if (shouldDisable) {
+            btn.classList.add('disabled');
+        } else {
+            btn.classList.remove('disabled');
+        }
+    });
+
+    document.querySelectorAll('.spinbox-buttons button').forEach(btn => {
+        if (disabled) {
+            btn.classList.add('disabled');
+        } else {
+            btn.classList.remove('disabled');
+        }
+    });
+}
+
 // Add click handlers to play buttons
 document.querySelectorAll('.tool-play[data-tool]').forEach(btn => {
     btn.addEventListener('click', (e) => {
@@ -299,6 +450,137 @@ document.querySelectorAll('.tool-play[data-tool]').forEach(btn => {
         runTool(toolName);
     });
 });
+
+// Manager chat input + AI logic (OpenRouter)
+const managerState = {
+    conversationHistory: [],
+    lastGapAnalysis: null,
+    isThinking: false
+};
+
+function buildManagerPrompt(userMessage) {
+    const lastGap = managerState.lastGapAnalysis?.report_html || "Nessun report recente disponibile";
+    const history = managerState.conversationHistory.slice(-6);
+    return `
+[ROLE] AI Manager Strategico
+[CONTEXT]
+Stato progetto attuale:
+${JSON.stringify(projectState, null, 2)}
+
+Configurazione tool attuale:
+${JSON.stringify(config, null, 2)}
+
+Messaggio utente: "${userMessage}"
+
+Ultimo report lacune disponibile:
+${lastGap}
+
+Cronologia sintetica conversazione:
+${JSON.stringify(history, null, 2)}
+
+[TASK]
+Analizza il messaggio e determina quale delle seguenti azioni è più appropriata:
+1. COMPILAZIONE_PARAMETRI - L'utente ha dato un brief iniziale e devi compilare i parametri per i tool non ancora attivati
+2. MODIFICA_PARAMETRI - L'utente vuole modificare/migliorare un tool già eseguito o i suoi parametri
+3. SPIEGAZIONE_TOOL - L'utente chiede come funziona un tool o vuole suggerimenti
+4. CONVERSAZIONE - L'utente vuole discutere/rifinire l'idea senza azioni tecniche
+5. RIMOZIONE_SEZIONE - L'utente vuole rimuovere/resettare un tool completato
+6. RISOLVI_LACUNE - L'utente vuole applicare/modificare per risolvere le lacune emerse dall'ultimo report
+
+[OUTPUT]
+Rispondi SOLO in JSON con questa struttura:
+{
+  "azione": "TIPO_AZIONE",
+  "tool_coinvolti": ["nome_tool1", "nome_tool2"],
+  "parametri_suggeriti": {
+    "num_personas": 3,
+    "budget_totale": "5000"
+  },
+  "risposta_utente": "Messaggio chiaro e conciso da mostrare all'utente (max 150 parole)",
+  "richiedi_documentazione": ["nome_tool"]
+}
+
+REGOLE:
+- Sii pragmatico e diretto
+- Se l'utente è vago, proponi valori sensati basati sul contesto
+- Non chiedere conferme inutili, agisci in modo proattivo
+- Rispondi sempre in italiano
+`;
+}
+
+async function runManagerAI(userMessage) {
+    if (!config.apiKey) {
+        addManagerMessage('manager', "Configura la API Key nelle impostazioni per usare il Manager.");
+        return;
+    }
+
+    managerState.isThinking = true;
+    if (managerSend) managerSend.disabled = true;
+    try {
+        const prompt = buildManagerPrompt(userMessage);
+        const response = await callLLM(prompt, 'analitico');
+        const result = parseJsonResponse(response);
+        managerState.conversationHistory.push({
+            user: userMessage,
+            response: result?.risposta_utente || ''
+        });
+
+        if (result?.parametri_suggeriti) {
+            applyManagerParams(result.parametri_suggeriti);
+        }
+
+        const reply = result?.risposta_utente || "Ok, ho aggiornato le indicazioni in base allo stato progetto.";
+        addManagerMessage('manager', reply);
+    } catch (err) {
+        addManagerMessage('manager', `❌ Errore Manager: ${err.message}`);
+    } finally {
+        managerState.isThinking = false;
+        if (managerSend) managerSend.disabled = false;
+    }
+}
+
+function applyManagerParams(params) {
+    const map = {
+        num_hypotheses: { key: 'num_hypotheses', spin: 'development' },
+        num_personas: { key: 'num_personas', spin: 'target' },
+        num_competitor: { key: 'num_competitor', spin: 'competitors' },
+        num_copy_variants: { key: 'num_copy_variants', spin: 'copywriting' },
+        num_adv_solutions: { key: 'num_adv_solutions', spin: 'adv' },
+        budget_totale: { key: 'budget_totale', spin: null }
+    };
+
+    Object.keys(params).forEach((p) => {
+        const entry = map[p];
+        if (!entry) return;
+        config[entry.key] = params[p];
+        if (entry.spin) {
+            const input = document.querySelector(`input[data-spin="${entry.spin}"]`);
+            if (input) {
+                input.value = params[p];
+            }
+        }
+    });
+}
+
+const managerInput = document.getElementById('managerInput');
+const managerSend = document.getElementById('managerSend');
+if (managerSend && managerInput) {
+    managerSend.addEventListener('click', () => {
+        if (managerState.isThinking) return;
+        const text = managerInput.value.trim();
+        if (!text) return;
+        addManagerMessage('user', text);
+        managerInput.value = '';
+        runManagerAI(text);
+    });
+
+    managerInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            managerSend.click();
+        }
+    });
+}
 
 async function runTool(toolName) {
     refreshConfigFromStorage();
@@ -346,6 +628,7 @@ async function runTool(toolName) {
     }
     
     setToolButtonState(toolName, 'loading');
+    setToolsDisabled(true, toolName);
     addMessage('system', `⏳ ${toolName.toUpperCase()} in esecuzione...`);
     
     try {
@@ -370,12 +653,15 @@ async function runTool(toolName) {
         // Update UI
         document.querySelector(`.tool-card[data-tool="${toolName}"]`)?.classList.add('completed');
         setToolButtonState(toolName, 'done');
+        setToolsDisabled(false);
         saveToLocalStorage();
         
         addMessage('ai', `✅ ${toolName.toUpperCase()} completato!`, result);
+        runManagerAI(`Aggiornamento automatico dopo tool ${toolName}. Analizza lo stato e suggerisci eventuali miglioramenti.`);
         
     } catch (error) {
         setToolButtonState(toolName, completedTools.has(toolName) ? 'done' : 'idle');
+        setToolsDisabled(false);
         addMessage('system', `❌ Errore: ${error.message}`);
     }
 }
@@ -845,6 +1131,18 @@ function parseJsonResponse(rawText) {
         text = text.replace(/```$/m, '').trim();
     }
 
+    // Normalize common issues
+    const normalizeJson = (input) => {
+        let t = input;
+        // Replace smart quotes with regular quotes
+        t = t.replace(/[“”]/g, '"').replace(/[‘’]/g, "'");
+        // Remove trailing commas before } or ]
+        t = t.replace(/,\s*([}\]])/g, '$1');
+        return t;
+    };
+
+    text = normalizeJson(text);
+
     // Try direct parse
     try {
         return JSON.parse(text);
@@ -853,7 +1151,7 @@ function parseJsonResponse(rawText) {
         const firstBrace = text.indexOf('{');
         const lastBrace = text.lastIndexOf('}');
         if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
-            const slice = text.slice(firstBrace, lastBrace + 1);
+            const slice = normalizeJson(text.slice(firstBrace, lastBrace + 1));
             return JSON.parse(slice);
         }
         throw new Error('Risposta non in JSON valido. Prova a rigenerare il tool.');
