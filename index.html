@@ -223,25 +223,28 @@
         }
 
         .brief-container {
-            display: flex;
-            gap: 15px;
-            align-items: center; /* Allinea orizzontalmente input e tasto */
-            max-width: 1200px;
-            margin: 0 auto;
+        display: flex;
+        gap: 10px;
+        align-items: flex-end;  /* cambiato da stretch */
         }
 
         .brief-input {
             flex: 1;
             background: var(--card);
             border: 1px solid var(--border);
-            border-radius: 10px;
-            padding: 12px 15px;
+            border-radius: 8px;
+            padding: 12px;
             color: var(--text);
             font-size: 14px;
-            font-family: inherit;
             resize: none;
-            height: 50px; /* Altezza fissa per riga singola pulita */
-            line-height: 24px;
+            font-family: inherit;
+            min-height: 44px;  /* ridotto da 50px */
+            max-height: 100px;  /* aggiungi limite massimo */
+        }
+
+        .btn {
+            white-space: nowrap;
+            flex-shrink: 0;  /* impedisce al bottone di essere compresso */
         }
 
         .brief-input:focus {
