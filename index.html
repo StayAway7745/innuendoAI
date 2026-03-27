@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>InnuendoAI - Pre-incubazione Startup</title>
+    <title>InnuendoAI</title>
     <style>
         :root {
             --bg: #121418;
@@ -165,6 +165,12 @@
             box-shadow: 0 6px 14px rgba(0, 0, 0, 0.2);
         }
 
+        .tool-header {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
         .tool-title {
             font-weight: 700;
             font-size: 15px;
@@ -183,46 +189,61 @@
             flex-wrap: wrap;
             gap: 8px;
             align-items: center;
+            margin-left: auto;
         }
 
-        .tool-action {
+        .tool-play {
             background: var(--accent);
             color: white;
             border: 2px solid var(--accent-border);
             border-radius: 8px;
-            padding: 6px 12px;
-            font-size: 13px;
-            font-weight: 700;
+            width: 44px;
+            height: 44px;
+            font-size: 20px;
+            font-weight: 800;
             cursor: pointer;
             transition: background 0.2s;
+            display: grid;
+            place-items: center;
         }
 
-        .tool-action:hover { background: var(--hover); }
+        .tool-play:hover { background: var(--hover); }
 
         .spinbox {
             display: inline-flex;
             align-items: center;
-            background: var(--bg);
-            border: 1px solid var(--border);
-            border-radius: 8px;
-            overflow: hidden;
-            height: 30px;
-        }
-
-        .spinbox button {
             background: transparent;
-            border: none;
-            color: var(--text);
-            padding: 0 8px;
-            cursor: pointer;
-            font-size: 14px;
+            gap: 4px;
         }
 
-        .spinbox span {
-            padding: 0 8px;
-            min-width: 18px;
+        .spinbox input {
+            width: 36px;
+            height: 32px;
             text-align: center;
-            font-size: 13px;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            background: var(--bg);
+            color: var(--text);
+            font-size: 14px;
+            outline: none;
+        }
+
+        .spinbox-buttons {
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+        }
+
+        .spinbox-buttons button {
+            width: 22px;
+            height: 15px;
+            border-radius: 6px;
+            border: 2px solid var(--accent-border);
+            background: var(--accent);
+            color: white;
+            cursor: pointer;
+            font-size: 10px;
+            line-height: 1;
         }
 
         .budget-box {
@@ -369,86 +390,116 @@
             <!-- TOOL STRIP -->
             <section class="tool-strip">
                 <article class="tool-card">
-                    <div class="tool-title">📌 Sviluppo</div>
+                    <div class="tool-header">
+                        <button class="tool-play">▶</button>
+                        <div class="tool-title">📌 Sviluppo</div>
+                        <div class="tool-controls">
+                            <div class="spinbox">
+                                <input type="number" value="3" min="1" max="5" />
+                                <div class="spinbox-buttons">
+                                    <button>▲</button>
+                                    <button>▼</button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
                     <div class="tool-description">Identificazione delle caratteristiche tecniche e funzionali necessarie per la realizzazione del prodotto.</div>
-                    <div class="tool-controls">
-                        <button class="tool-action">▶ Esegui</button>
-                        <div class="spinbox">
-                            <button>-</button><span>3</span><button>+</button>
-                        </div>
-                    </div>
                 </article>
 
                 <article class="tool-card">
-                    <div class="tool-title">🎯 Analisi settore</div>
+                    <div class="tool-header">
+                        <button class="tool-play">▶</button>
+                        <div class="tool-title">🎯 Analisi settore</div>
+                        <div class="tool-controls">
+                            <div class="spinbox">
+                                <input type="number" value="3" min="1" max="5" />
+                                <div class="spinbox-buttons">
+                                    <button>▲</button>
+                                    <button>▼</button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
                     <div class="tool-description">Segmentazione del mercato attraverso lo studio delle Buyer Personas e l'analisi dei profili socioculturali basata sulla Grande Mappa di GfK Eurisko.</div>
-                    <div class="tool-controls">
-                        <button class="tool-action">▶ Esegui</button>
-                        <div class="spinbox">
-                            <button>-</button><span>3</span><button>+</button>
-                        </div>
-                    </div>
                 </article>
 
                 <article class="tool-card">
-                    <div class="tool-title">🏢 Concorrenza</div>
+                    <div class="tool-header">
+                        <button class="tool-play">▶</button>
+                        <div class="tool-title">🏢 Concorrenza</div>
+                        <div class="tool-controls">
+                            <div class="spinbox">
+                                <input type="number" value="3" min="1" max="5" />
+                                <div class="spinbox-buttons">
+                                    <button>▲</button>
+                                    <button>▼</button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
                     <div class="tool-description">Monitoraggio e analisi dei diretti concorrenti per individuare i benchmark di settore.</div>
-                    <div class="tool-controls">
-                        <button class="tool-action">▶ Esegui</button>
-                        <div class="spinbox">
-                            <button>-</button><span>3</span><button>+</button>
-                        </div>
-                    </div>
                 </article>
 
                 <article class="tool-card">
-                    <div class="tool-title">📊 SWOT</div>
+                    <div class="tool-header">
+                        <button class="tool-play">▶</button>
+                        <div class="tool-title">📊 SWOT</div>
+                    </div>
                     <div class="tool-description">Valutazione analitica delle dinamiche interne ed esterne che influenzano il potenziale del progetto.</div>
-                    <div class="tool-controls">
-                        <button class="tool-action">▶ Esegui</button>
-                    </div>
                 </article>
 
                 <article class="tool-card">
-                    <div class="tool-title">💶 Prezzo</div>
+                    <div class="tool-header">
+                        <button class="tool-play">▶</button>
+                        <div class="tool-title">💶 Prezzo</div>
+                    </div>
                     <div class="tool-description">Definizione di tre fasce prezzo (alto/medio/basso) e scelta del posizionamento economico consigliato.</div>
-                    <div class="tool-controls">
-                        <button class="tool-action">▶ Esegui</button>
-                    </div>
                 </article>
 
                 <article class="tool-card">
-                    <div class="tool-title">📣 Campagna pubblicitaria</div>
+                    <div class="tool-header">
+                        <button class="tool-play">▶</button>
+                        <div class="tool-title">📣 Campagna pubblicitaria</div>
+                        <div class="tool-controls">
+                            <div class="spinbox">
+                                <input type="number" value="3" min="1" max="5" />
+                                <div class="spinbox-buttons">
+                                    <button>▲</button>
+                                    <button>▼</button>
+                                </div>
+                            </div>
+                            <div class="budget-box">
+                                <span>€</span>
+                                <input type="text" value="1000" />
+                            </div>
+                        </div>
+                    </div>
                     <div class="tool-description">Elaborazione del piano di comunicazione e allocazione del budget pubblicitario per la promozione.</div>
-                    <div class="tool-controls">
-                        <button class="tool-action">▶ Esegui</button>
-                        <div class="spinbox">
-                            <button>-</button><span>3</span><button>+</button>
-                        </div>
-                        <div class="budget-box">
-                            <span>€</span>
-                            <input type="text" value="1000" />
-                        </div>
-                    </div>
                 </article>
 
                 <article class="tool-card">
-                    <div class="tool-title">✍️ Scrittura</div>
+                    <div class="tool-header">
+                        <button class="tool-play">▶</button>
+                        <div class="tool-title">✍️ Scrittura</div>
+                        <div class="tool-controls">
+                            <div class="spinbox">
+                                <input type="number" value="3" min="1" max="5" />
+                                <div class="spinbox-buttons">
+                                    <button>▲</button>
+                                    <button>▼</button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
                     <div class="tool-description">Generazione copy persuasivo basato su neuromarketing: ormoni, cervello trino, ganci emotivi.</div>
-                    <div class="tool-controls">
-                        <button class="tool-action">▶ Esegui</button>
-                        <div class="spinbox">
-                            <button>-</button><span>3</span><button>+</button>
-                        </div>
-                    </div>
                 </article>
 
                 <article class="tool-card">
-                    <div class="tool-title">⚠️ Analisi Pre-Mortem</div>
-                    <div class="tool-description">Simulazione preventiva delle criticità operative e dei fattori di rischio esterni.</div>
-                    <div class="tool-controls">
-                        <button class="tool-action">▶ Esegui</button>
+                    <div class="tool-header">
+                        <button class="tool-play">▶</button>
+                        <div class="tool-title">⚠️ Analisi Pre-Mortem</div>
                     </div>
+                    <div class="tool-description">Simulazione preventiva delle criticità operative e dei fattori di rischio esterni.</div>
                 </article>
             </section>
 
@@ -460,17 +511,11 @@
                     <strong style="text-align:right;">AI Manager</strong>
                 </div>
                 <div class="chat-panels">
-                    <div class="chat-panel">
-                        <h3 style="color: var(--accent); margin-bottom: 10px;">Pronto ad analizzare?</h3>
-                        <p>Scrivi il brief qui sotto e clicca Play su un tool per avviare la pipeline.</p>
-                    </div>
+                    <div class="chat-panel"></div>
                     <div class="sash">
                         <button class="sash-handle">&lt;&gt;</button>
                     </div>
-                    <div class="chat-panel">
-                        <h3 style="color: var(--accent); margin-bottom: 10px;">AI Manager</h3>
-                        <p>Usa questo pannello per richiedere analisi trasversali o controlli di coerenza.</p>
-                    </div>
+                    <div class="chat-panel"></div>
                 </div>
             </section>
 
