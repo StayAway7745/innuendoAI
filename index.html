@@ -16,6 +16,9 @@
             --accent-border: #003E96;
             --hover: #2F74E0;
             --radius: 12px;
+            --sash-width: 48px;
+            --panel-gap: 4px;
+            --chat-font-size: 13px;
         }
 
         [data-theme="light"] {
@@ -46,36 +49,18 @@
 
         .app {
             display: grid;
-            grid-template-columns: 400px 1fr;
+            grid-template-columns: 320px 1fr;
             height: 100vh;
         }
 
-        /* Sidebar (Progetti) */
-        .sidebar {
+        .tools-sidebar {
             background: var(--surface);
             border-right: 1px solid var(--border);
+            padding: 12px;
+            overflow-y: auto;
             display: flex;
             flex-direction: column;
-            padding: 10px;
-            gap: 10px;
-        }
-
-        .sidebar-header {
-            background: var(--card);
-            border: 1px solid var(--border);
-            border-radius: var(--radius);
-            padding: 12px 14px;
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-        }
-
-        .sidebar-title {
-            font-size: 16px;
-            font-weight: 700;
-            display: flex;
-            align-items: center;
-            gap: 8px;
+            gap: 12px;
         }
 
         .icon-button {
@@ -97,37 +82,14 @@
             transform: translateY(-1px);
         }
 
-        .projects-list {
-            flex: 1;
-            overflow-y: auto;
-            padding: 4px 4px 10px 4px;
-            display: flex;
-            flex-direction: column;
-            gap: 8px;
-        }
-
-        .project-item {
-            background: var(--card);
-            border: 1px solid var(--border);
-            border-radius: var(--radius);
-            padding: 12px 14px;
-            font-size: 13px;
-            cursor: pointer;
-            transition: border 0.2s, background 0.2s;
-        }
-
-        .project-item.active {
-            border-color: var(--accent);
-            box-shadow: 0 6px 14px rgba(0, 0, 0, 0.2);
-        }
-
         /* Main area */
         .main {
             display: flex;
             flex-direction: column;
-            height: 100vh;
+            height: 100%;
             padding: 15px;
             gap: 12px;
+            min-height: 0;
         }
 
         .top-bar {
@@ -144,8 +106,8 @@
         }
 
         .tool-strip {
-            display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+            display: flex;
+            flex-direction: column;
             gap: 12px;
         }
 
@@ -226,6 +188,14 @@
             color: var(--text);
             font-size: 14px;
             outline: none;
+            appearance: textfield;
+            -moz-appearance: textfield;
+        }
+
+        .spinbox input::-webkit-outer-spin-button,
+        .spinbox input::-webkit-inner-spin-button {
+            -webkit-appearance: none;
+            margin: 0;
         }
 
         .spinbox-buttons {
@@ -324,8 +294,8 @@
 
         .chat-panels {
             display: grid;
-            grid-template-columns: 1fr auto 1fr;
-            gap: 8px;
+            grid-template-columns: minmax(220px, 1fr) var(--sash-width) minmax(220px, 1fr);
+            column-gap: var(--panel-gap);
             flex: 1;
         }
 
@@ -335,59 +305,165 @@
             border-radius: var(--radius);
             padding: 14px;
             overflow-y: auto;
+            font-size: var(--chat-font-size);
         }
 
         .sash {
             display: flex;
             align-items: center;
             justify-content: center;
+            width: var(--sash-width);
+            cursor: col-resize;
+            position: relative;
         }
 
-        .sash-handle {
+        .sash::before {
+            content: "";
+            width: 6px;
+            height: 60%;
+            border-radius: 6px;
+            background: var(--border);
+            transition: background 0.15s, box-shadow 0.15s;
+        }
+
+        .sash:hover::before,
+        .sash.dragging::before {
             background: var(--accent);
-            color: white;
-            border: 2px solid var(--accent-border);
-            border-radius: 10px;
-            width: 46px;
-            height: 22px;
-            font-size: 11px;
-            cursor: col-resize;
+            box-shadow: 0 0 0 4px rgba(58, 134, 255, 0.15);
         }
 
         ::-webkit-scrollbar { width: 6px; }
         ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 10px; }
+
+        /* Settings Modal */
+        .modal-overlay {
+            position: fixed;
+            inset: 0;
+            background: rgba(7, 10, 14, 0.65);
+            display: none;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+        }
+
+        .modal-overlay.active {
+            display: flex;
+        }
+
+        .settings-modal {
+            width: 700px;
+            height: 650px;
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 16px;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        .settings-header {
+            background: var(--card);
+            border-bottom: 1px solid var(--border);
+            padding: 14px 18px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .settings-title {
+            font-weight: 800;
+            font-size: 18px;
+        }
+
+        .settings-close {
+            width: 40px;
+            height: 40px;
+            border-radius: 10px;
+            border: 2px solid var(--accent-border);
+            background: var(--accent);
+            color: white;
+            cursor: pointer;
+            font-size: 16px;
+        }
+
+        .settings-body {
+            padding: 16px 18px;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            flex: 1;
+        }
+
+        .settings-section {
+            background: var(--card);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 14px;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .settings-section h4 {
+            font-size: 14px;
+            margin-bottom: 2px;
+        }
+
+        .settings-help {
+            font-size: 11px;
+            color: var(--muted);
+        }
+
+        .settings-input,
+        .settings-select {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            color: var(--text);
+            border-radius: 10px;
+            padding: 10px 12px;
+            font-size: 12px;
+        }
+
+        .settings-row {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+        }
+
+        .settings-row input[type="range"] {
+            flex: 1;
+        }
+
+        .settings-footer {
+            padding: 14px 18px;
+            border-top: 1px solid var(--border);
+            display: flex;
+            justify-content: space-between;
+            background: var(--surface);
+        }
+
+        .settings-btn {
+            padding: 10px 14px;
+            border-radius: 10px;
+            border: 2px solid var(--accent-border);
+            background: var(--accent);
+            color: white;
+            font-weight: 700;
+            cursor: pointer;
+        }
+
+        .settings-btn.secondary {
+            background: var(--card);
+            border-color: var(--border);
+            color: var(--text);
+        }
     </style>
 </head>
 <body data-theme="dark">
     <div class="app">
-        <!-- SIDEBAR PROGETTI -->
-        <aside class="sidebar">
-            <div class="sidebar-header">
-                <div class="sidebar-title">📂 Progetti</div>
-                <button class="icon-button" title="Aggiorna elenco progetti">↻</button>
-            </div>
-            <div class="projects-list">
-                <div class="project-item active">Startup - Marzo 2026</div>
-                <div class="project-item">E-commerce Intimo</div>
-                <div class="project-item">SaaS HR - MVP</div>
-                <div class="project-item">Fitness App 2.0</div>
-            </div>
-        </aside>
-
-        <!-- MAIN AREA -->
-        <main class="main">
-            <header class="top-bar">
-                <div class="top-group">
-                    <button class="icon-button" title="Mostra o nascondi la barra progetti">📁</button>
-                    <button class="icon-button" title="Nuovo progetto">+</button>
-                </div>
-                <div class="top-group">
-                    <button class="icon-button" title="Esporta PDF">📄</button>
-                    <button class="icon-button" title="Impostazioni">⚙</button>
-                </div>
-            </header>
-
-            <!-- TOOL STRIP -->
+        <!-- TOOL SIDEBAR -->
+        <aside class="tools-sidebar">
             <section class="tool-strip">
                 <article class="tool-card">
                     <div class="tool-header">
@@ -468,10 +544,6 @@
                                     <button>▼</button>
                                 </div>
                             </div>
-                            <div class="budget-box">
-                                <span>€</span>
-                                <input type="text" value="1000" />
-                            </div>
                         </div>
                     </div>
                     <div class="tool-description">Elaborazione del piano di comunicazione e allocazione del budget pubblicitario per la promozione.</div>
@@ -502,6 +574,19 @@
                     <div class="tool-description">Simulazione preventiva delle criticità operative e dei fattori di rischio esterni.</div>
                 </article>
             </section>
+        </aside>
+
+        <!-- MAIN AREA -->
+        <main class="main">
+            <header class="top-bar">
+                <div class="top-group">
+                    <button class="icon-button" title="Nuovo progetto">+</button>
+                </div>
+                <div class="top-group">
+                    <button class="icon-button" title="Esporta PDF">📄</button>
+                    <button class="icon-button" id="settings-btn" title="Impostazioni">⚙</button>
+                </div>
+            </header>
 
             <!-- CHAT AREA -->
             <section class="chat-area">
@@ -512,9 +597,7 @@
                 </div>
                 <div class="chat-panels">
                     <div class="chat-panel"></div>
-                    <div class="sash">
-                        <button class="sash-handle">&lt;&gt;</button>
-                    </div>
+                    <div class="sash" role="separator" aria-orientation="vertical" tabindex="0"></div>
                     <div class="chat-panel"></div>
                 </div>
             </section>
@@ -531,5 +614,321 @@
             </section>
         </main>
     </div>
+
+    <!-- SETTINGS MODAL -->
+    <div class="modal-overlay" id="settings-modal" aria-hidden="true">
+        <div class="settings-modal" role="dialog" aria-modal="true" aria-label="Impostazioni">
+            <div class="settings-header">
+                <div class="settings-title">Impostazioni</div>
+                <button class="settings-close" id="settings-close">✕</button>
+            </div>
+            <div class="settings-body">
+                <div class="settings-section">
+                    <h4>🏢 Provider AI</h4>
+                    <select class="settings-select" id="provider-select">
+                        <option value="openrouter">openrouter</option>
+                        <option value="openai">openai</option>
+                        <option value="anthropic">anthropic</option>
+                        <option value="groq">groq</option>
+                        <option value="together">together</option>
+                    </select>
+                </div>
+
+                <div class="settings-section">
+                    <h4>🔑 API Key</h4>
+                    <input class="settings-input" id="api-key" type="password" placeholder="sk-or-v1-..." />
+                </div>
+
+                <div class="settings-section">
+                    <h4>🤖 Modello AI</h4>
+                    <div class="settings-help" id="model-help">
+                        Incolla il nome completo del modello (es: google/gemma-3-27b-it:free)
+                    </div>
+                    <input class="settings-input" id="model-input" placeholder="provider/model-name:free" />
+                    <button class="settings-btn" id="test-connection">🧪 Test Connessione</button>
+                    <div class="settings-help" id="test-result"></div>
+                </div>
+
+                <div class="settings-section">
+                    <h4>🔤 Dimensione Font Chatbox</h4>
+                    <div class="settings-row">
+                        <div id="font-size-label">13 px</div>
+                        <input type="range" id="font-size" min="10" max="24" value="13" />
+                    </div>
+                    <div class="settings-help">Range: 10-24 pixel</div>
+                </div>
+
+                <div class="settings-section">
+                    <h4>🎨 Tema</h4>
+                    <div class="settings-row">
+                        <label>
+                            <input type="checkbox" id="theme-toggle" checked />
+                            Dark Mode
+                        </label>
+                    </div>
+                </div>
+            </div>
+            <div class="settings-footer">
+                <button class="settings-btn secondary" id="settings-cancel">Annulla</button>
+                <button class="settings-btn" id="settings-save">💾 Salva Impostazioni</button>
+            </div>
+        </div>
+    </div>
+    <script>
+        const chatPanels = document.querySelector(".chat-panels");
+        const sash = document.querySelector(".sash");
+        const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
+        let isDragging = false;
+        let dragStartX = null;
+        let dragArmed = false;
+
+        function setPanels(leftPx, rightPx) {
+            chatPanels.style.gridTemplateColumns = `${leftPx}px auto ${rightPx}px`;
+        }
+
+        function getLayoutMetrics() {
+            const rect = chatPanels.getBoundingClientRect();
+            const sash = chatPanels.querySelector(".sash");
+            const sashWidth = sash ? sash.getBoundingClientRect().width : 36;
+            const gap = parseFloat(getComputedStyle(chatPanels).columnGap) || 0;
+            const totalGap = gap * 2;
+            return { rect, sashWidth, totalGap };
+        }
+
+        function softClamp(value, min, max) {
+            if (value < min) return min + (value - min) * 0.2;
+            if (value > max) return max + (value - max) * 0.2;
+            return value;
+        }
+
+        function handleDrag(clientX) {
+            const { rect, sashWidth, totalGap } = getLayoutMetrics();
+            const minSide = 220;
+            const maxSide = rect.width - minSide - sashWidth - totalGap;
+            const rawLeft = clientX - rect.left;
+            const softened = softClamp(rawLeft, minSide, maxSide);
+            const left = clamp(softened, minSide, maxSide);
+            const right = rect.width - left - sashWidth - totalGap;
+            setPanels(left, right);
+        }
+
+        function centerPanels() {
+            const { rect, sashWidth, totalGap } = getLayoutMetrics();
+            if (rect.width <= 0) return;
+            const available = rect.width - sashWidth - totalGap;
+            const side = Math.max(220, Math.floor(available / 2));
+            const right = Math.max(220, available - side);
+            setPanels(side, right);
+        }
+
+        function getCurrentLeftWidth() {
+            const firstPanel = chatPanels.querySelector(".chat-panel");
+            if (!firstPanel) return null;
+            return firstPanel.getBoundingClientRect().width;
+        }
+
+        function snapToCenterIfClose() {
+            const { rect, sashWidth, totalGap } = getLayoutMetrics();
+            const available = rect.width - sashWidth - totalGap;
+            const desired = available / 2;
+            const current = getCurrentLeftWidth() ?? desired;
+            if (Math.abs(current - desired) < 18) {
+                centerPanels();
+            }
+        }
+
+        function startDrag(event) {
+            dragStartX = event.clientX;
+            dragArmed = true;
+        }
+
+        sash.addEventListener("mousedown", (event) => {
+            startDrag(event);
+        });
+
+        window.addEventListener("mousemove", (event) => {
+            if (!dragArmed && !isDragging) return;
+            if (!isDragging && dragArmed) {
+                if (Math.abs(event.clientX - dragStartX) < 3) return;
+                isDragging = true;
+                sash.classList.add("dragging");
+                document.body.style.userSelect = "none";
+            }
+            if (isDragging) {
+                handleDrag(event.clientX);
+            }
+        });
+
+        window.addEventListener("mouseup", () => {
+            if (isDragging) {
+                isDragging = false;
+                sash.classList.remove("dragging");
+                document.body.style.userSelect = "";
+                snapToCenterIfClose();
+            }
+            dragArmed = false;
+            dragStartX = null;
+        });
+
+        window.addEventListener("mouseleave", () => {
+            if (isDragging) {
+                isDragging = false;
+                sash.classList.remove("dragging");
+                document.body.style.userSelect = "";
+                snapToCenterIfClose();
+            }
+            dragArmed = false;
+            dragStartX = null;
+        });
+
+        sash.addEventListener("dblclick", () => {
+            centerPanels();
+        });
+
+        window.addEventListener("resize", () => {
+            if (!isDragging) centerPanels();
+        });
+
+        window.addEventListener("load", () => {
+            centerPanels();
+        });
+
+        // Settings Modal Logic
+        const settingsBtn = document.getElementById("settings-btn");
+        const settingsModal = document.getElementById("settings-modal");
+        const settingsClose = document.getElementById("settings-close");
+        const settingsCancel = document.getElementById("settings-cancel");
+        const settingsSave = document.getElementById("settings-save");
+        const providerSelect = document.getElementById("provider-select");
+        const modelHelp = document.getElementById("model-help");
+        const modelInput = document.getElementById("model-input");
+        const testConnection = document.getElementById("test-connection");
+        const testResult = document.getElementById("test-result");
+        const fontSize = document.getElementById("font-size");
+        const fontSizeLabel = document.getElementById("font-size-label");
+        const themeToggle = document.getElementById("theme-toggle");
+
+        const providerHints = {
+            openrouter: {
+                help: "Incolla il nome completo del modello (es: google/gemma-3-27b-it:free)",
+                placeholder: "provider/model-name:free",
+                defaultModel: "google/gemma-3-27b-it:free",
+            },
+            openai: {
+                help: "Nome del modello OpenAI (es: gpt-4o-mini, gpt-4-turbo)",
+                placeholder: "gpt-4o-mini",
+                defaultModel: "gpt-4o-mini",
+            },
+            anthropic: {
+                help: "Nome del modello Anthropic (es: claude-3-5-sonnet-20241022)",
+                placeholder: "claude-3-5-sonnet-20241022",
+                defaultModel: "claude-3-5-sonnet-20241022",
+            },
+            groq: {
+                help: "Nome del modello Groq (es: llama3-8b-8192)",
+                placeholder: "llama3-8b-8192",
+                defaultModel: "llama3-8b-8192",
+            },
+            together: {
+                help: "Nome del modello Together AI (es: meta-llama/Llama-3-8b-chat-hf)",
+                placeholder: "meta-llama/Llama-3-8b-chat-hf",
+                defaultModel: "meta-llama/Llama-3-8b-chat-hf",
+            },
+        };
+
+        function openSettings() {
+            settingsModal.classList.add("active");
+            settingsModal.setAttribute("aria-hidden", "false");
+        }
+
+        function closeSettings() {
+            settingsModal.classList.remove("active");
+            settingsModal.setAttribute("aria-hidden", "true");
+        }
+
+        settingsBtn.addEventListener("click", openSettings);
+        settingsClose.addEventListener("click", closeSettings);
+        settingsCancel.addEventListener("click", closeSettings);
+        settingsModal.addEventListener("click", (e) => {
+            if (e.target === settingsModal) closeSettings();
+        });
+        window.addEventListener("keydown", (e) => {
+            if (e.key === "Escape") closeSettings();
+        });
+
+        providerSelect.addEventListener("change", () => {
+            const hint = providerHints[providerSelect.value];
+            modelHelp.textContent = hint.help;
+            modelInput.placeholder = hint.placeholder;
+            if (!modelInput.value) modelInput.value = hint.defaultModel;
+        });
+
+        testConnection.addEventListener("click", () => {
+            testConnection.disabled = true;
+            testConnection.textContent = "Testing...";
+            testResult.textContent = "⏳ Testing...";
+            setTimeout(() => {
+                testResult.textContent = "✅ Connessione OK";
+                testConnection.disabled = false;
+                testConnection.textContent = "🧪 Test Connessione";
+            }, 900);
+        });
+
+        fontSize.addEventListener("input", () => {
+            fontSizeLabel.textContent = `${fontSize.value} px`;
+            document.documentElement.style.setProperty("--chat-font-size", `${fontSize.value}px`);
+        });
+
+        themeToggle.addEventListener("change", () => {
+            document.body.setAttribute("data-theme", themeToggle.checked ? "dark" : "light");
+        });
+
+        settingsSave.addEventListener("click", closeSettings);
+
+        // Spinbox UX: custom buttons + keyboard
+        document.querySelectorAll(".spinbox").forEach((spinbox) => {
+            const input = spinbox.querySelector('input[type="number"]');
+            const buttons = spinbox.querySelectorAll(".spinbox-buttons button");
+            const upBtn = buttons[0];
+            const downBtn = buttons[1];
+
+            if (!input || buttons.length < 2) return;
+
+            const getMin = () => {
+                const min = parseInt(input.min, 10);
+                return Number.isNaN(min) ? -Infinity : min;
+            };
+            const getMax = () => {
+                const max = parseInt(input.max, 10);
+                return Number.isNaN(max) ? Infinity : max;
+            };
+            const getValue = () => {
+                const val = parseInt(input.value, 10);
+                return Number.isNaN(val) ? 0 : val;
+            };
+            const setValue = (val) => {
+                const clamped = Math.max(getMin(), Math.min(getMax(), val));
+                input.value = clamped;
+            };
+
+            upBtn.addEventListener("click", () => {
+                setValue(getValue() + 1);
+                input.focus();
+            });
+
+            downBtn.addEventListener("click", () => {
+                setValue(getValue() - 1);
+                input.focus();
+            });
+
+            input.addEventListener("keydown", (e) => {
+                if (e.key !== "ArrowUp" && e.key !== "ArrowDown") return;
+                e.preventDefault();
+                const step = e.shiftKey ? 5 : 1;
+                if (e.key === "ArrowUp") setValue(getValue() + step);
+                if (e.key === "ArrowDown") setValue(getValue() - step);
+            });
+        });
+    </script>
 </body>
 </html>
