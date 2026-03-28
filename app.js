@@ -9,7 +9,6 @@ let projectState = {
     target: {},
     competitors: {},
     swot: {},
-    naming: {},
     copywriting: {},
     prezzo: {},
     adv: {},
@@ -30,6 +29,14 @@ let config = {
 
 let completedTools = new Set();
 
+function sanitizeProjectState(state) {
+    if (!state || typeof state !== 'object') return state;
+    if (!Object.prototype.hasOwnProperty.call(state, 'naming')) return state;
+    const cleaned = { ...state };
+    delete cleaned.naming;
+    return cleaned;
+}
+
 // ========================================
 // INITIALIZATION
 // ========================================
@@ -41,6 +48,16 @@ document.addEventListener('DOMContentLoaded', () => {
     // Load brief if exists
     if (projectState.project.brief_originale) {
         document.getElementById('briefInput').value = projectState.project.brief_originale;
+    }
+
+    const newProjectBtn = document.getElementById('new-project-btn');
+    if (newProjectBtn) {
+        newProjectBtn.addEventListener('click', newProject);
+    }
+
+    const exportPdfBtn = document.getElementById('export-pdf-btn');
+    if (exportPdfBtn) {
+        exportPdfBtn.addEventListener('click', exportProjectPdf);
     }
 });
 
@@ -56,7 +73,10 @@ function loadFromLocalStorage() {
     const savedState = localStorage.getItem('innuendoai_project_state');
     if (savedState) {
         try {
-            projectState = JSON.parse(savedState);
+            const parsed = JSON.parse(savedState);
+            const cleaned = sanitizeProjectState(parsed);
+            projectState = cleaned;
+            if (cleaned !== parsed) saveToLocalStorage();
             updateCompletedTools();
         } catch (e) {
             console.error('Error loading state:', e);
@@ -68,7 +88,10 @@ function refreshProjectStateFromStorage() {
     const savedState = localStorage.getItem('innuendoai_project_state');
     if (!savedState) return;
     try {
-        projectState = JSON.parse(savedState);
+        const parsed = JSON.parse(savedState);
+        const cleaned = sanitizeProjectState(parsed);
+        projectState = cleaned;
+        if (cleaned !== parsed) saveToLocalStorage();
         updateCompletedTools();
     } catch (e) {
         console.error('Error refreshing state:', e);
@@ -86,7 +109,6 @@ function updateCompletedTools() {
     if (projectState.target?.analisi_area) completedTools.add('target');
     if (projectState.competitors?.analisi_segmento) completedTools.add('competitors');
     if (projectState.swot?.pestel) completedTools.add('swot');
-    if (projectState.naming?.scelta_finale?.nome_scelto) completedTools.add('naming');
     if (projectState.copywriting?.copy_variants?.length) completedTools.add('copywriting');
     if (projectState.prezzo?.fasce?.length) completedTools.add('pricing');
     if (projectState.adv?.campagne?.length) completedTools.add('adv');
@@ -208,7 +230,6 @@ function newProject() {
         target: {},
         competitors: {},
         swot: {},
-        naming: {},
         copywriting: {},
         prezzo: {},
         adv: {},
@@ -216,12 +237,26 @@ function newProject() {
     };
     
     completedTools.clear();
-    document.getElementById('briefInput').value = '';
-    document.getElementById('chatMessages').innerHTML = '';
+    if (document.getElementById('briefInput')) document.getElementById('briefInput').value = '';
+    if (document.getElementById('chatMessages')) document.getElementById('chatMessages').innerHTML = '';
+    if (document.getElementById('managerMessages')) document.getElementById('managerMessages').innerHTML = '';
+
+    // Reset Manager shared memory
+    if (typeof managerState !== 'undefined') {
+        managerState.conversationHistory = [];
+        managerState.lastGapAnalysis = null;
+        managerState.isThinking = false;
+    }
     
     document.querySelectorAll('.tool-card').forEach(card => {
         card.classList.remove('completed');
     });
+
+    document.querySelectorAll('.tool-play[data-tool]').forEach(btn => {
+        btn.classList.remove('loading', 'done', 'disabled');
+        btn.textContent = '▶';
+    });
+    setToolsDisabled(false);
     
     saveToLocalStorage();
     addMessage('system', '🆕 Nuovo progetto creato!');
@@ -240,6 +275,202 @@ function downloadProject() {
     addMessage('system', '📥 Progetto scaricato!');
 }
 
+function exportProjectPdf() {
+    refreshProjectStateFromStorage();
+
+    if (!window.jspdf || !window.jspdf.jsPDF) {
+        addMessage('system', '⚠️ Libreria PDF non caricata. Ricarica la pagina e riprova.');
+        return;
+    }
+
+    const { jsPDF } = window.jspdf;
+    const doc = new jsPDF({ unit: 'pt', format: 'a4' });
+
+    const pageWidth = doc.internal.pageSize.getWidth();
+    const pageHeight = doc.internal.pageSize.getHeight();
+    const marginX = 46;
+    const marginY = 50;
+    const lineHeight = 14;
+    const sectionGap = 14;
+    const indentStep = 14;
+
+    const now = new Date();
+    const projectName = 'Report progetto';
+    const meta = `Generato il ${now.toLocaleDateString()} ${now.toLocaleTimeString()}`;
+
+    let cursorY = marginY;
+
+    const ensureSpace = (needed) => {
+        if (cursorY + needed > pageHeight - marginY) {
+            doc.addPage();
+            cursorY = marginY;
+        }
+    };
+
+    doc.setFont('Helvetica', 'bold');
+    doc.setFontSize(18);
+    doc.text(projectName, marginX, cursorY);
+    cursorY += 20;
+
+    doc.setFont('Helvetica', 'normal');
+    doc.setFontSize(10);
+    doc.setTextColor(90, 102, 117);
+    doc.text(meta, marginX, cursorY);
+    cursorY += 18;
+
+    doc.setTextColor(26, 29, 34);
+
+    const sections = [
+        { key: 'project', label: 'Panoramica Progetto' },
+        { key: 'project_context', label: 'Contesto Progetto' },
+        { key: 'product', label: 'Sviluppo Prodotto' },
+        { key: 'target', label: 'Analisi Target' },
+        { key: 'competitors', label: 'Concorrenza' },
+        { key: 'swot', label: 'SWOT' },
+        { key: 'copywriting', label: 'Scrittura' },
+        { key: 'prezzo', label: 'Prezzo' },
+        { key: 'adv', label: 'Campagna Pubblicitaria' },
+        { key: 'risk_analysis', label: 'Analisi Pre-Mortem' }
+    ];
+
+    let renderedAny = false;
+    sections.forEach(({ key, label }) => {
+        const value = projectState ? projectState[key] : null;
+        if (!nodeHasVisibleContent(value)) return;
+
+        renderedAny = true;
+        ensureSpace(24);
+        doc.setFont('Helvetica', 'bold');
+        doc.setFontSize(13);
+        doc.setTextColor(0, 62, 150);
+        doc.text(label, marginX, cursorY);
+        cursorY += 16;
+
+        doc.setFont('Helvetica', 'normal');
+        doc.setFontSize(10);
+        doc.setTextColor(26, 29, 34);
+
+        const lines = buildPdfLines(value, 0, [key]);
+        lines.forEach((line) => {
+            const x = marginX + line.depth * indentStep;
+            const maxWidth = pageWidth - marginX - x;
+            const wrapped = doc.splitTextToSize(line.text, maxWidth);
+            wrapped.forEach((row) => {
+                ensureSpace(lineHeight);
+                doc.setFont('Helvetica', line.bold ? 'bold' : 'normal');
+                doc.text(row, x, cursorY);
+                cursorY += lineHeight;
+            });
+        });
+
+        cursorY += sectionGap;
+    });
+
+    if (!renderedAny) {
+        doc.setFont('Helvetica', 'normal');
+        doc.setFontSize(10);
+        doc.text('Nessun contenuto disponibile da esportare.', marginX, cursorY);
+    }
+
+    const pdfBlob = doc.output('blob');
+    const pdfUrl = URL.createObjectURL(pdfBlob);
+    const pdfWindow = window.open(pdfUrl, '_blank');
+    if (!pdfWindow) {
+        const a = document.createElement('a');
+        a.href = pdfUrl;
+        a.download = `${projectName.replace(/\s+/g, '_')}.pdf`;
+        a.click();
+        addMessage('system', '📄 PDF generato e scaricato.');
+    } else {
+        addMessage('system', '📄 PDF generato. Puoi scaricare o stampare dal viewer.');
+    }
+}
+
+function nodeHasVisibleContent(node) {
+    if (node === null || node === undefined) return false;
+    if (typeof node === 'string') return node.trim() !== '';
+    if (typeof node === 'number' || typeof node === 'boolean') return true;
+    if (Array.isArray(node)) return node.some(item => nodeHasVisibleContent(item));
+    if (typeof node === 'object') {
+        return Object.values(node).some(value => nodeHasVisibleContent(value));
+    }
+    return false;
+}
+
+function buildPdfLines(node, depth = 0, path = [], boldFirstLine = false) {
+    const lines = [];
+    const maxDepth = 4;
+
+    const pushLine = (text, level, bold = false) => {
+        const clean = String(text).replace(/\s+/g, ' ').trim();
+        if (!clean) return;
+        lines.push({ text: clean, depth: Math.min(level, maxDepth), bold });
+    };
+
+    const normalizeKey = (key) => String(key).toLowerCase().replace(/[\s_\-]+/g, '');
+    const isCopywritingPath = path.includes('copywriting') || path.includes('copy_variants');
+
+    if (node === null || node === undefined) return lines;
+
+    if (typeof node === 'string' || typeof node === 'number' || typeof node === 'boolean') {
+        pushLine(node, depth);
+        return lines;
+    }
+
+    if (Array.isArray(node)) {
+        if (node.length === 0) return lines;
+        const isKpiPath = path.some(p => normalizeKey(p) === 'kpi' || normalizeKey(p) === 'kpis');
+        if (isKpiPath && node.every(item => typeof item === 'object' && item !== null && !Array.isArray(item))) {
+            node.forEach((item) => {
+                const metric = item.metrica ?? item.kpi ?? item.nome;
+                const target = item.target ?? item.obiettivo ?? item.valore;
+                const unit = item.unita ?? item.unità ?? item.unit;
+                if (!metric && !target) return;
+                const targetText = target !== undefined && target !== null && String(target).trim() !== ''
+                    ? ` ${target}${unit ? ` ${unit}` : ''}`
+                    : '';
+                pushLine(`${metric}:${targetText}`, depth);
+            });
+            return lines;
+        }
+        const allSimple = node.every(item => typeof item !== 'object' || item === null);
+        if (allSimple) {
+            node.forEach(item => pushLine(`- ${item}`, depth));
+            return lines;
+        }
+        node.forEach((item, idx) => {
+            if (item === null || item === undefined) return;
+            if (typeof item === 'object') {
+                lines.push(...buildPdfLines(item, depth, path.concat(String(idx + 1)), true));
+            } else {
+                pushLine(`- ${item}`, depth);
+            }
+        });
+        return lines;
+    }
+
+    if (typeof node === 'object') {
+        let firstEmitted = false;
+        Object.entries(node).forEach(([key, value]) => {
+            if (!nodeHasVisibleContent(value)) return;
+            if (isCopywritingPath && normalizeKey(key) === 'id') return;
+            const prettyKey = prettifyKey(key);
+            if (typeof value === 'object' && value !== null) {
+                const bold = boldFirstLine && !firstEmitted;
+                pushLine(`${prettyKey}:`, depth, bold);
+                if (bold) firstEmitted = true;
+                lines.push(...buildPdfLines(value, depth + 1, path.concat(String(key))));
+            } else {
+                const bold = boldFirstLine && !firstEmitted;
+                pushLine(`${prettyKey}: ${value}`, depth, bold);
+                if (bold) firstEmitted = true;
+            }
+        });
+    }
+
+    return lines;
+}
+
 function addMessage(role, content, data = null) {
     const messagesContainer = document.getElementById('chatMessages');
     const messageDiv = document.createElement('div');
@@ -247,18 +478,24 @@ function addMessage(role, content, data = null) {
     
     const avatarText = role === 'system' ? '🤖' : 'AI';
     const roleName = role === 'system' ? 'Sistema' : 'InnuendoAI';
-    
-    const contentHTML = formatMessageContent(content, data);
+
+    if (role === 'system') {
+        messageDiv.classList.add('system-debug');
+    }
     
     messageDiv.innerHTML =
         `<div class="message-header">` +
         `<div class="message-avatar">${avatarText}</div>` +
         `<span class="message-role">${roleName}</span>` +
         `</div>` +
-        `<div class="message-content">${contentHTML}</div>`;
+        `<div class="message-content"></div>`;
     
     messagesContainer.appendChild(messageDiv);
     messagesContainer.scrollTop = messagesContainer.scrollHeight;
+
+    const contentEl = messageDiv.querySelector('.message-content');
+    const shouldType = role !== 'user';
+    renderMessageWithTyping(contentEl, content, data, shouldType);
 }
 
 function addManagerMessage(role, content) {
@@ -268,18 +505,21 @@ function addManagerMessage(role, content) {
     messageDiv.className = 'message';
 
     const avatarText = role === 'user' ? 'TU' : 'AI';
-    const roleName = role === 'user' ? 'Tu' : 'AI Manager';
+    const roleName = role === 'user' ? 'Tu' : 'Manager';
 
-    const contentHTML = formatMessageContent(content || '');
     messageDiv.innerHTML =
         `<div class="message-header">` +
         `<div class="message-avatar">${avatarText}</div>` +
         `<span class="message-role">${roleName}</span>` +
         `</div>` +
-        `<div class="message-content">${contentHTML}</div>`;
+        `<div class="message-content"></div>`;
 
     messagesContainer.appendChild(messageDiv);
     messagesContainer.scrollTop = messagesContainer.scrollHeight;
+
+    const contentEl = messageDiv.querySelector('.message-content');
+    const shouldType = role !== 'user';
+    renderMessageWithTyping(contentEl, content || '', null, shouldType);
 }
 
 function escapeHtml(text) {
@@ -368,6 +608,111 @@ function formatMessageContent(content, data) {
         html += renderHumanReadable(data);
     }
     return html;
+}
+
+// ========================================
+// TYPING EFFECT
+// ========================================
+
+const typingConfig = {
+    wordDelayMs: 200,
+    minTotalMs: 800,
+    maxTotalMs: 12000
+};
+
+function clampValue(value, min, max) {
+    return Math.max(min, Math.min(max, value));
+}
+
+function estimateWordDelay(wordCount) {
+    if (wordCount <= 0) return typingConfig.minTotalMs;
+    const total = clampValue(wordCount * typingConfig.wordDelayMs, typingConfig.minTotalMs, typingConfig.maxTotalMs);
+    return Math.max(10, Math.floor(total / wordCount));
+}
+
+function renderMessageWithTyping(container, content, data, useTyping) {
+    const html = formatMessageContent(content, data);
+    if (!useTyping) {
+        container.innerHTML = html;
+        return;
+    }
+
+    // Render formatted HTML first, then reveal its text nodes word-by-word.
+    container.innerHTML = html;
+    container.classList.add('typing-active');
+    animateFormattedWords(container, () => {
+        container.classList.remove('typing-active');
+    });
+}
+
+function animateFormattedWords(container, onDone) {
+    const scrollPanel = container.closest('.chat-panel');
+    const keepScroll = () => {
+        if (!scrollPanel) return;
+        scrollPanel.scrollTop = scrollPanel.scrollHeight;
+    };
+
+    const walker = document.createTreeWalker(
+        container,
+        NodeFilter.SHOW_TEXT,
+        {
+            acceptNode(node) {
+                if (!node.nodeValue) return NodeFilter.FILTER_REJECT;
+                if (!node.nodeValue.trim()) return NodeFilter.FILTER_REJECT;
+                return NodeFilter.FILTER_ACCEPT;
+            }
+        }
+    );
+
+    const textNodes = [];
+    while (walker.nextNode()) {
+        textNodes.push({
+            node: walker.currentNode,
+            fullText: walker.currentNode.nodeValue
+        });
+    }
+
+    if (textNodes.length === 0) return;
+
+    const wordQueues = textNodes.map((entry) => {
+        const words = entry.fullText.trim().split(/\s+/);
+        return { entry, words, index: 0 };
+    });
+
+    const totalWords = wordQueues.reduce((sum, q) => sum + q.words.length, 0);
+    const delay = estimateWordDelay(totalWords);
+
+    // Clear all text nodes before typing.
+    wordQueues.forEach(({ entry }) => {
+        entry.node.nodeValue = '';
+    });
+
+    let currentNode = 0;
+
+    const tick = () => {
+        while (currentNode < wordQueues.length && wordQueues[currentNode].index >= wordQueues[currentNode].words.length) {
+            currentNode += 1;
+        }
+        if (currentNode >= wordQueues.length) {
+            // Restore original text to preserve spacing/newlines in nodes.
+            wordQueues.forEach(({ entry }) => {
+                if (!entry.node.nodeValue) {
+                    entry.node.nodeValue = entry.fullText;
+                }
+            });
+            keepScroll();
+            if (onDone) onDone();
+            return;
+        }
+
+        const queue = wordQueues[currentNode];
+        const word = queue.words[queue.index];
+        queue.entry.node.nodeValue += (queue.index === 0 ? '' : ' ') + word;
+        queue.index += 1;
+        keepScroll();
+        setTimeout(tick, delay);
+    };
+    tick();
 }
 
 function generateManagerResponse(userText) {
@@ -461,11 +806,12 @@ const managerState = {
 function buildManagerPrompt(userMessage) {
     const lastGap = managerState.lastGapAnalysis?.report_html || "Nessun report recente disponibile";
     const history = managerState.conversationHistory.slice(-6);
+    const promptState = sanitizeProjectState(projectState);
     return `
 [ROLE] AI Manager Strategico
 [CONTEXT]
 Stato progetto attuale:
-${JSON.stringify(projectState, null, 2)}
+${JSON.stringify(promptState, null, 2)}
 
 Configurazione tool attuale:
 ${JSON.stringify(config, null, 2)}
@@ -497,7 +843,7 @@ Rispondi SOLO in JSON con questa struttura:
     "budget_totale": "5000"
   },
   "risposta_utente": "Messaggio chiaro e conciso da mostrare all'utente (max 150 parole)",
-  "richiedi_documentazione": ["nome_tool"]
+  "richiedi_documentazione": ["nome_tool"] // solo se serve spiegazione approfondita
 }
 
 REGOLE:
@@ -614,7 +960,6 @@ async function runTool(toolName) {
         'target': runTarget,
         'competitors': runCompetitors,
         'swot': runSWOT,
-        'naming': runNaming,
         'copywriting': runCopywriting,
         'pricing': runPricing,
         'adv': runADV,
@@ -640,7 +985,6 @@ async function runTool(toolName) {
             'target': 'target',
             'competitors': 'competitors',
             'swot': 'swot',
-            'naming': 'naming',
             'copywriting': 'copywriting',
             'pricing': 'prezzo',
             'adv': 'adv',
@@ -714,6 +1058,14 @@ async function callLLM(prompt, agentType = 'analitico') {
 // ========================================
 // TOOL IMPLEMENTATIONS
 // ========================================
+
+function getBrandName() {
+    return (
+        projectState.prezzo?.brand_name ||
+        projectState.project?.brief_originale ||
+        'Progetto'
+    );
+}
 
 async function runDevelopment() {
     const brief = projectState.project.brief_originale;
@@ -889,41 +1241,8 @@ Rispondi SOLO JSON in italiano.
     return parseJsonResponse(response);
 }
 
-async function runNaming() {
-    const brief = projectState.project.brief_originale;
-    const target = projectState.target?.analisi_area || 'Generale';
-    const product = projectState.product || {};
-    
-    const prompt = `
-[ROLE] Brand Strategist
-
-[CONTEXT]
-Prodotto: ${brief}
-Target: ${target}
-Posizionamento: ${product.differenziazione || 'Innovativo'}
-
-[TASK]
-Proponi 12 nomi (3 per categoria: Natura, Tech, Emozioni, Miti).
-NO nomi esistenti. Seleziona il migliore.
-
-[OUTPUT JSON]
-{
-  "elenco_nomi_proposti": "Lista nomi con categorie",
-  "scelta_finale": {
-    "nome_scelto": "Nome selezionato",
-    "motivazione_analitica": "Perché questo nome"
-  }
-}
-
-Rispondi SOLO JSON in italiano.
-`;
-    
-    const response = await callLLM(prompt, 'creativo');
-    return parseJsonResponse(response);
-}
-
 async function runCopywriting() {
-    const brand = projectState.naming?.scelta_finale?.nome_scelto || projectState.project.brief_originale;
+    const brand = getBrandName();
     const product = projectState.product || {};
     const numVarianti = config.num_copy_variants;
     
@@ -969,7 +1288,7 @@ Rispondi SOLO JSON in italiano.
 }
 
 async function runPricing() {
-    const brand = projectState.naming?.scelta_finale?.nome_scelto || projectState.project.brief_originale;
+    const brand = getBrandName();
     const product = projectState.product || {};
     const target = projectState.target?.analisi_area || 'Mercato generale';
     
@@ -1024,7 +1343,7 @@ Rispondi SOLO JSON in italiano.
 }
 
 async function runADV() {
-    const brand = projectState.naming?.scelta_finale?.nome_scelto || projectState.project.brief_originale;
+    const brand = getBrandName();
     const product = projectState.product || {};
     const target = projectState.target || {};
     const budget = config.budget_totale;
@@ -1083,7 +1402,7 @@ Rispondi SOLO JSON in italiano.
 }
 
 async function runRisk() {
-    const brand = projectState.naming?.scelta_finale?.nome_scelto || projectState.project.brief_originale;
+    const brand = getBrandName();
     
     const prompt = `
 [ROLE] Risk Management Expert
@@ -1157,3 +1476,6 @@ function parseJsonResponse(rawText) {
         throw new Error('Risposta non in JSON valido. Prova a rigenerare il tool.');
     }
 }
+
+
+

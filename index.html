@@ -348,6 +348,17 @@
             min-height: 0;
         }
 
+        .manager-panel-stack {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            min-height: 0;
+        }
+
+        .manager-panel-stack .chat-panel {
+            flex: 1;
+        }
+
         .manager-input-bar {
             display: flex;
             gap: 8px;
@@ -412,6 +423,18 @@
             color: var(--text);
         }
 
+        .message.system-debug .message-role {
+            display: none;
+        }
+
+        .message.system-debug .message-header {
+            gap: 0;
+        }
+
+        .message.system-debug .message-avatar {
+            display: none;
+        }
+
         .message-content p {
             margin: 0 0 8px 0;
         }
@@ -422,6 +445,11 @@
             border-radius: 4px;
             font-family: "Courier New", monospace;
             font-size: 12px;
+        }
+
+        .message-content.typing-active ul {
+            list-style: none;
+            padding-left: 18px;
         }
 
         .message-content .json-block,
@@ -745,10 +773,10 @@
         <main class="main">
             <header class="top-bar">
                 <div class="top-group">
-                    <button class="icon-button" title="Nuovo progetto">+</button>
+                    <button class="icon-button" id="new-project-btn" title="Nuovo progetto">+</button>
                 </div>
                 <div class="top-group">
-                    <button class="icon-button" title="Esporta PDF">📄</button>
+                    <button class="icon-button" id="export-pdf-btn" title="Esporta PDF">📄</button>
                     <button class="icon-button" id="settings-btn" title="Impostazioni">⚙</button>
                 </div>
             </header>
@@ -763,11 +791,13 @@
                 <div class="chat-panels">
                     <div class="chat-panel" id="chatMessages"></div>
                     <div class="sash" role="separator" aria-orientation="vertical" tabindex="0"></div>
-                    <div class="chat-panel" id="managerMessages"></div>
-                </div>
-                <div class="manager-input-bar">
-                    <input id="managerInput" type="text" placeholder="Scrivi al manager..." />
-                    <button id="managerSend">Invia</button>
+                    <div class="manager-panel-stack">
+                        <div class="chat-panel" id="managerMessages"></div>
+                        <div class="manager-input-bar">
+                            <input id="managerInput" type="text" placeholder="Scrivi al manager..." />
+                            <button id="managerSend">Invia</button>
+                        </div>
+                    </div>
                 </div>
             </section>
 
@@ -1142,6 +1172,7 @@
             });
         });
     </script>
+    <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
     <script src="app.js"></script>
 </body>
 </html>
