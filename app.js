@@ -501,6 +501,7 @@ Tool disponibili per sviluppo: ${toolList.join(', ')}
     "time_estimate": "..."
   }
 }
+  
 
 Rispondi solo JSON valido in italiano.
 `;
