@@ -3,7 +3,7 @@
 // ========================================
 
 let projectState = {
-    project: { brief_originale: '' },
+    project: { brief_originale: '', project_id: '' },
     project_context: {},
     product: {},
     target: {},
@@ -24,10 +24,57 @@ let config = {
     num_competitor: 3,
     num_copy_variants: 3,
     num_adv_solutions: 2,
-    budget_totale: '5000'
+    budget_totale: '5000',
+    tavilyApiKey: ''
 };
 
+const PROJECT_LIMIT = 5;
+const PROJECT_COUNT_KEY = 'innuendoai_project_count';
+const LLM_DAILY_LIMIT = 50;
+const TAVILY_DAILY_LIMIT = 20;
+const TAVILY_MAX_RESULTS = 5;
+
+function getProjectCount() {
+    const raw = localStorage.getItem(PROJECT_COUNT_KEY);
+    const num = parseInt(raw || '0', 10);
+    return Number.isFinite(num) ? num : 0;
+}
+
+function setProjectCount(value) {
+    localStorage.setItem(PROJECT_COUNT_KEY, String(value));
+}
+
+function getTodayKey() {
+    return new Date().toISOString().slice(0, 10);
+}
+
+function simpleHash(input) {
+    let hash = 0;
+    const str = String(input || '');
+    for (let i = 0; i < str.length; i += 1) {
+        hash = (hash << 5) - hash + str.charCodeAt(i);
+        hash |= 0;
+    }
+    return Math.abs(hash).toString(36);
+}
+
+function getQuotaStorageKey(type, apiKey) {
+    const keyHash = simpleHash(apiKey);
+    return `innuendoai_quota_${type}_${keyHash}_${getTodayKey()}`;
+}
+
+function consumeQuota(type, apiKey, limit) {
+    if (!apiKey) return true;
+    const storageKey = getQuotaStorageKey(type, apiKey);
+    const raw = localStorage.getItem(storageKey);
+    const count = parseInt(raw || '0', 10);
+    if (count >= limit) return false;
+    localStorage.setItem(storageKey, String(count + 1));
+    return true;
+}
+
 let completedTools = new Set();
+let analysisCurrentQuestionIndex = 0;
 
 function sanitizeProjectState(state) {
     if (!state || typeof state !== 'object') return state;
@@ -37,14 +84,28 @@ function sanitizeProjectState(state) {
     return cleaned;
 }
 
+async function ensureProjectSlot() {
+    if (projectState.project?.project_id) return true;
+    const currentCount = getProjectCount();
+    if (currentCount >= PROJECT_LIMIT) {
+        addMessage('system', `Limite progetti raggiunto (${PROJECT_LIMIT}).`);
+        return false;
+    }
+    const nextCount = currentCount + 1;
+    setProjectCount(nextCount);
+    projectState.project.project_id = `local_${nextCount}_${Date.now()}`;
+    saveToLocalStorage();
+    return true;
+}
+
 // ========================================
 // INITIALIZATION
 // ========================================
 
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', async () => {
     loadFromLocalStorage();
     updateToolCards();
-    
+        
     // Load brief if exists
     if (projectState.project.brief_originale) {
         document.getElementById('briefInput').value = projectState.project.brief_originale;
@@ -59,15 +120,62 @@ document.addEventListener('DOMContentLoaded', () => {
     if (exportPdfBtn) {
         exportPdfBtn.addEventListener('click', exportProjectPdf);
     }
+
+    const tavilyTestBtn = document.getElementById('tavily-test');
+    if (tavilyTestBtn) {
+        tavilyTestBtn.addEventListener('click', testTavilyConnection);
+    }
+
+    document.querySelectorAll('.tool-play[data-tool]').forEach(btn => {
+        btn.addEventListener('click', () => runTool(btn.getAttribute('data-tool')));
+    });
+
+    const startAnalysisBtn = document.getElementById('start-analysis-btn');
+    if (startAnalysisBtn) {
+        startAnalysisBtn.addEventListener('click', async () => {
+            const brief = (document.getElementById('briefInput')?.value || '').trim();
+            if (!brief) {
+                addMessage('system', 'Inserisci prima un brief per avviare l\'analisi iniziale.');
+                return;
+            }
+            if (!projectState.project.brief_originale) {
+                projectState.project.brief_originale = brief;
+                saveToLocalStorage();
+            }
+            // Apri overlay subito per feedback utente
+            openAnalysisOverlay();
+            await runBriefAnalysis();
+        });
+    }
+
+    const analysisClose = document.getElementById('analysis-close');
+    if (analysisClose) {
+        analysisClose.addEventListener('click', closeAnalysisOverlay);
+    }
+    const analysisCancel = document.getElementById('analysis-cancel');
+    if (analysisCancel) {
+        analysisCancel.addEventListener('click', closeAnalysisOverlay);
+    }
+    const analysisPrev = document.getElementById('analysis-prev');
+    if (analysisPrev) {
+        analysisPrev.addEventListener('click', () => navigateAnalysisQuestion(-1));
+    }
+
+    const analysisAction = document.getElementById('analysis-action');
+    if (analysisAction) {
+        analysisAction.addEventListener('click', handleAnalysisAction);
+    }
 });
 
 function loadFromLocalStorage() {
     // Load config
     const savedApiKey = localStorage.getItem('innuendoai_api_key');
     const savedModel = localStorage.getItem('innuendoai_model');
-    
+    const savedTavilyKey = localStorage.getItem('innuendoai_tavily_key');
+
     if (savedApiKey) config.apiKey = savedApiKey;
     if (savedModel) config.model = savedModel;
+    if (savedTavilyKey) config.tavilyApiKey = savedTavilyKey;
     
     // Load project state
     const savedState = localStorage.getItem('innuendoai_project_state');
@@ -78,6 +186,7 @@ function loadFromLocalStorage() {
             projectState = cleaned;
             if (cleaned !== parsed) saveToLocalStorage();
             updateCompletedTools();
+            updateAnalysisButtonState();
         } catch (e) {
             console.error('Error loading state:', e);
         }
@@ -93,6 +202,7 @@ function refreshProjectStateFromStorage() {
         projectState = cleaned;
         if (cleaned !== parsed) saveToLocalStorage();
         updateCompletedTools();
+        updateAnalysisButtonState();
     } catch (e) {
         console.error('Error refreshing state:', e);
     }
@@ -117,6 +227,50 @@ function updateCompletedTools() {
     updateToolCards();
 }
 
+function updateAnalysisButtonState() {
+    const btn = document.getElementById('start-analysis-btn');
+    if (!btn) return;
+    const completed = !!projectState.project_context?.initial_analysis?.completed;
+    btn.disabled = completed;
+    btn.classList.toggle('disabled', completed);
+    btn.style.opacity = completed ? '0.5' : '1';
+    btn.style.pointerEvents = completed ? 'none' : 'auto';
+    btn.textContent = completed ? 'Analisi iniziale ✓' : 'Analisi Iniziale';
+    btn.title = completed ? 'Analisi iniziale già completata' : 'Analisi iniziale';
+}
+
+function setToolButtonState(toolName, state) {
+    const btn = document.querySelector(`.tool-play[data-tool="${toolName}"]`);
+    if (!btn) return;
+
+    btn.classList.remove('idle', 'loading', 'done', 'disabled');
+    if (state) btn.classList.add(state);
+
+    switch (state) {
+        case 'loading':
+            btn.textContent = '⏳';
+            break;
+        case 'done':
+            btn.textContent = '✅';
+            break;
+        case 'disabled':
+            btn.textContent = '⏸';
+            break;
+        default:
+            btn.textContent = '►';
+            break;
+    }
+}
+
+function setToolsDisabled(disabled, exceptTool = null) {
+    document.querySelectorAll('.tool-play[data-tool]').forEach((btn) => {
+        const toolName = btn.getAttribute('data-tool');
+        const disable = disabled && toolName !== exceptTool;
+        btn.disabled = disable;
+        btn.classList.toggle('disabled', disable);
+    });
+}
+
 function updateToolCards() {
     document.querySelectorAll('.tool-card[data-tool]').forEach(card => {
         const toolName = card.getAttribute('data-tool');
@@ -133,8 +287,10 @@ function updateToolCards() {
 function refreshConfigFromStorage() {
     const savedApiKey = localStorage.getItem('innuendoai_api_key');
     const savedModel = localStorage.getItem('innuendoai_model');
+    const savedTavilyKey = localStorage.getItem('innuendoai_tavily_key');
     if (savedApiKey) config.apiKey = savedApiKey;
     if (savedModel) config.model = savedModel;
+    if (savedTavilyKey) config.tavilyApiKey = savedTavilyKey;
 }
 
 // ========================================
@@ -172,8 +328,10 @@ function showSettings() {
     if (!modal) return;
     const apiKeyInput = document.getElementById('api-key');
     const modelInput = document.getElementById('model-input');
+    const tavilyInput = document.getElementById('tavily-key');
     if (apiKeyInput) apiKeyInput.value = config.apiKey || '';
     if (modelInput) modelInput.value = config.model || '';
+    if (tavilyInput) tavilyInput.value = config.tavilyApiKey || '';
     modal.classList.add('active');
     modal.setAttribute('aria-hidden', 'false');
 }
@@ -188,43 +346,494 @@ function closeSettings() {
 function saveSettings() {
     const apiKey = document.getElementById('api-key')?.value || '';
     const model = document.getElementById('model-input')?.value || '';
+    const tavilyKey = document.getElementById('tavily-key')?.value || '';
     
     if (!apiKey) {
-        addMessage('system', '⚠️ Inserisci una API Key valida');
+        addMessage('system', 'Inserisci una API Key valida');
         return;
     }
     
     config.apiKey = apiKey;
     config.model = model;
+    config.tavilyApiKey = tavilyKey;
     
     localStorage.setItem('innuendoai_api_key', apiKey);
     localStorage.setItem('innuendoai_model', model);
+    localStorage.setItem('innuendoai_tavily_key', tavilyKey);
     
-    addMessage('system', '✅ Impostazioni salvate con successo!');
+    addMessage('system', 'Impostazioni salvate con successo.');
     closeSettings();
 }
 
-function saveBrief() {
+async function testTavilyConnection() {
+    const resultEl = document.getElementById('tavily-test-result');
+    const inlineKey = document.getElementById('tavily-key')?.value || '';
+    const key = inlineKey.trim();
+    if (!key) {
+        if (resultEl) resultEl.textContent = 'Inserisci una Tavily API Key valida.';
+        return;
+    }
+
+    if (resultEl) resultEl.textContent = 'Test in corso...';
+    const data = await callTavilySearch('test query', 'basic', key);
+    if (!data) {
+        if (resultEl) resultEl.textContent = 'Test fallito: nessuna risposta da Tavily.';
+        return;
+    }
+    const count = Array.isArray(data.results) ? data.results.length : 0;
+    if (resultEl) resultEl.textContent = `OK: Tavily risponde (${count} risultati).`;
+}
+
+async function saveBrief() {
     const brief = document.getElementById('briefInput').value.trim();
     
     if (!brief) {
-        addMessage('system', '⚠️ Inserisci un brief del progetto');
+        addMessage('system', 'Inserisci un brief del progetto');
         return;
     }
+
+    const ok = await ensureProjectSlot();
+    if (!ok) return;
     
     projectState.project.brief_originale = brief;
     saveToLocalStorage();
     
-    addMessage('system', '✅ Brief salvato! Puoi ora avviare i tool dalla sidebar.');
+    addMessage('system', 'Brief salvato. Puoi ora avviare i tool dalla sidebar.');
 }
 
-function newProject() {
-    if (!confirm('Vuoi creare un nuovo progetto? Il progetto corrente verrà perso se non l\'hai scaricato.')) {
+function getInitialAnalysisContext() {
+    const analysis = projectState.project_context?.initial_analysis;
+    if (!analysis) return '';
+
+    const lines = [];
+    lines.push(`Brief: ${projectState.project.brief_originale || 'Nessuno'}`);
+    if (analysis.questions && Array.isArray(analysis.questions)) {
+        lines.push('Domande generate:');
+        analysis.questions.forEach((q, idx) => {
+            lines.push(`${idx + 1}. ${q.question || q.q || 'N/A'}`);
+        });
+    }
+    if (analysis.resource_requirements) {
+        lines.push(`Risorse: ${JSON.stringify(analysis.resource_requirements)}`);
+    }
+    if (analysis.user_feedback) lines.push(`Risposta utente: ${analysis.user_feedback}`);
+    return lines.join('\n');
+}
+
+function openAnalysisOverlay() {
+    const overlay = document.getElementById('analysis-overlay');
+    if (!overlay) return;
+    overlay.classList.add('active');
+    overlay.setAttribute('aria-hidden', 'false');
+
+    const analysisStatus = document.getElementById('analysis-status');
+    if (analysisStatus) {
+        analysisStatus.textContent = 'Stato: in corso analisi iniziale...';
+    }
+
+    const prev = document.getElementById('analysis-prev');
+    const action = document.getElementById('analysis-action');
+    if (prev) {
+        prev.disabled = true;
+        prev.classList.add('disabled');
+    }
+    if (action) {
+        action.disabled = true;
+        action.classList.add('disabled');
+        action.textContent = 'Avanti';
+    }
+}
+
+function closeAnalysisOverlay() {
+    const overlay = document.getElementById('analysis-overlay');
+    if (!overlay) return;
+    overlay.classList.remove('active');
+    overlay.setAttribute('aria-hidden', 'true');
+}
+
+async function runBriefAnalysis() {
+    const brief = (document.getElementById('briefInput')?.value || '').trim();
+    if (!brief) {
+        addMessage('system', 'Inserisci un brief prima di avviare l\'analisi.');
         return;
     }
-    
+
+    if (!config.apiKey) {
+        addMessage('system', 'Configura la API Key nelle impostazioni per usare il servizio AI.');
+        showSettings();
+        return;
+    }
+
+    const analysisStatus = document.getElementById('analysis-status');
+    if (analysisStatus) analysisStatus.textContent = 'Stato: 🎯 Generazione in corso... Attendere prego.';
+
+    const toolList = ['development', 'target', 'competitors', 'swot', 'copywriting', 'pricing', 'adv', 'risk'];
+    const prompt = `
+[ROLE] Agente Analitico Senior
+
+[CONTEXT]
+Brief progetto: ${brief}
+Tool disponibili per sviluppo: ${toolList.join(', ')}
+
+[OBIETTIVO]
+1. Fornisci una sintesi dei punti critici e un obiettivo progetto chiaro ma non dettagliato in KPI tecnici (stadio iniziale): "sprint MVP, validazione prodotto, riduzione rischio".
+2. Formula domande specifiche a risposta multipla (4 opzioni: A/B/C/Altro) su:
+- ambito del risultato di business (scopo generale, es. "migliorare conversioni web", "far crescere l\'engagement")
+- risorse interne e skill (es. "Hai competenze di sviluppo software, data, UX, DevOps?", "Esiste il profilo professionale sviluppatore/backend/architetto/PM?")
+- disponibilità team e ruoli (1-3, 5-20, 50+ persone)
+- budget disponibile
+- timeline e vincoli.
+- gap tecnici e opzioni low-code/no-code (se mancano skill coding).
+3. Assicurati di includere almeno una domanda esplicita su competenze/profili e un suggerimento contestualizzato se il team non può gestire sviluppo custom.
+4. Niente metriche avanzate irreali come "Fatturato +200%" in questa fase.
+5. Includi checklist risorse (personale, competenze, budget, tempo).
+
+[OUTPUT JSON]
+{
+  "summary": "...",
+  "questions": [
+    {"question": "...", "a": "...", "b": "...", "c": "...", "altro": "..."}
+  ],
+  "resource_requirements": {
+    "team": "...",
+    "competence": "...",
+    "budget_min": "...",
+    "time_estimate": "..."
+  }
+}
+
+Rispondi solo JSON valido in italiano.
+`;
+
+    let output;
+    try {
+        output = await callLLM(prompt, 'analitico');
+    } catch (err) {
+        if (analysisStatus) analysisStatus.textContent = '❌ Errore durante l\'analisi: ' + err.message;
+        addMessage('system', `Errore analisi brief: ${err.message}`);
+        return;
+    }
+
+    let parsed;
+    try {
+        parsed = parseJsonResponse(output);
+    } catch (err) {
+        parsed = {
+            summary: 'Impossibile parsare JSON, testo fornito: ' + output,
+            questions: [],
+            resource_requirements: {}
+        };
+    }
+
+    projectState.project_context = projectState.project_context || {};
+    projectState.project_context.initial_analysis = {
+        ...parsed,
+        note: output,
+        completed: true,
+        timestamp: new Date().toISOString(),
+        user_feedback: projectState.project_context?.initial_analysis?.user_feedback || ''
+    };
+    saveToLocalStorage();
+
+    if (analysisStatus) {
+        analysisStatus.textContent = '✅ Analisi iniziale completata. Rispondi alle domande o salva per procedere.';
+    }
+
+    projectState.project_context.initial_analysis.questions = parsed.questions || [];
+    projectState.project_context.initial_analysis.answers = [];
+    projectState.project_context.initial_analysis.completed = false;
+    saveToLocalStorage();
+
+    analysisCurrentQuestionIndex = 0;
+    renderAnalysisQuestionnaire(parsed.questions || []);
+
+    addMessage('system', 'Analisi iniziale completata. Rispondi alle domande una ad una e poi salva.');
+}
+
+function getSavedAnswersForQuestion(index) {
+    const answers = projectState.project_context?.initial_analysis?.answers || [];
+    return answers[index] || [];
+}
+
+function saveAnswersForQuestion(index, selectedValues) {
+    projectState.project_context = projectState.project_context || {};
+    projectState.project_context.initial_analysis = projectState.project_context.initial_analysis || {};
+    const answers = projectState.project_context.initial_analysis.answers || [];
+    answers[index] = selectedValues;
+    projectState.project_context.initial_analysis.answers = answers;
+    saveToLocalStorage();
+}
+
+function updateAnalysisNavigationButtons(questions = []) {
+    const prev = document.getElementById('analysis-prev');
+    const action = document.getElementById('analysis-action');
+
+    const hasQuestions = questions.length > 0;
+    const isLast = analysisCurrentQuestionIndex >= questions.length - 1;
+
+    if (prev) {
+        prev.disabled = !hasQuestions || analysisCurrentQuestionIndex <= 0;
+        prev.classList.toggle('disabled', prev.disabled);
+    }
+
+    if (action) {
+        if (!hasQuestions) {
+            action.disabled = true;
+            action.classList.add('disabled');
+            action.textContent = 'Avanti';
+            return;
+        }
+
+        action.disabled = false;
+        action.classList.remove('disabled');
+        action.textContent = isLast ? 'Salva risposte' : 'Avanti';
+    }
+}
+
+function renderAnalysisQuestionnaire(questions = []) {
+    const container = document.getElementById('analysis-questions');
+    if (!container) return;
+
+    container.innerHTML = '';
+    if (!questions.length) {
+        container.innerHTML = '<p>Nessuna domanda strutturata generata. Ripeti l\'analisi iniziale.</p>';
+        return;
+    }
+
+    if (analysisCurrentQuestionIndex < 0) analysisCurrentQuestionIndex = 0;
+    if (analysisCurrentQuestionIndex >= questions.length) analysisCurrentQuestionIndex = questions.length - 1;
+
+    const q = questions[analysisCurrentQuestionIndex];
+    const questionText = q.question || q.q || `Domanda ${analysisCurrentQuestionIndex + 1}`;
+    const optionA = q.a || q.opzioneA || 'A';
+    const optionB = q.b || q.opzioneB || 'B';
+    const optionC = q.c || q.opzioneC || 'C';
+    const optionAltro = q.altro || q.other || 'Altro';
+
+    const header = document.createElement('div');
+    header.style.marginBottom = '12px';
+    header.style.fontSize = '13px';
+    header.style.fontWeight = '700';
+    header.textContent = `Domanda ${analysisCurrentQuestionIndex + 1} di ${questions.length}`;
+    container.appendChild(header);
+
+    const fieldset = document.createElement('fieldset');
+    fieldset.style.marginTop = '16px';
+    fieldset.style.padding = '12px';
+    fieldset.style.background = 'var(--surface)';
+    fieldset.style.border = '1px solid var(--border)';
+    fieldset.style.borderRadius = '10px';
+
+    const legend = document.createElement('legend');
+    legend.style.marginBottom = '8px';
+    legend.textContent = questionText;
+    fieldset.appendChild(legend);
+
+    const savedValues = getSavedAnswersForQuestion(analysisCurrentQuestionIndex);
+    [optionA, optionB, optionC, optionAltro].forEach((opt, optIdx) => {
+        const id = `analysis-q-${analysisCurrentQuestionIndex}-${optIdx}`;
+        const label = document.createElement('label');
+        label.style.display = 'block';
+        label.style.marginBottom = '4px';
+
+        const input = document.createElement('input');
+        input.type = 'checkbox';
+        input.name = 'analysis-question-option';
+        input.id = id;
+        input.value = opt;
+        input.style.marginRight = '6px';
+        if (savedValues.includes(opt)) input.checked = true;
+
+        label.appendChild(input);
+        label.appendChild(document.createTextNode(opt));
+
+        fieldset.appendChild(label);
+    });
+
+    container.appendChild(fieldset);
+    updateAnalysisNavigationButtons(questions);
+}
+
+
+function collectAnalysisAnswers() {
+    return projectState.project_context?.initial_analysis?.answers || [];
+}
+
+function getCurrentQuestionSelectedOptions() {
+    return [...document.querySelectorAll('input[name="analysis-question-option"]:checked')]
+        .map((el) => el.value);
+}
+
+function navigateAnalysisQuestion(step) {
+    const questions = projectState.project_context?.initial_analysis?.questions || [];
+    if (questions.length === 0) return;
+
+    const selected = getCurrentQuestionSelectedOptions();
+    if (selected.length === 0) {
+        addMessage('system', 'Seleziona almeno un\'opzione prima di proseguire.');
+        return;
+    }
+
+    saveAnswersForQuestion(analysisCurrentQuestionIndex, selected);
+
+    const lastIndex = questions.length - 1;
+    if (analysisCurrentQuestionIndex === lastIndex) {
+        projectState.project_context.initial_analysis.completed = true;
+        projectState.project_context.initial_analysis.answers = collectAnalysisAnswers();
+        projectState.project_context.initial_analysis.timestamp = new Date().toISOString();
+        saveToLocalStorage();
+
+        const status = document.getElementById('analysis-status');
+        if (status) {
+            status.textContent = '✅ Tutte le domande completate. Premi Salva risposte per chiudere.';
+        }
+
+        return;
+    }
+
+    analysisCurrentQuestionIndex = Math.min(lastIndex, analysisCurrentQuestionIndex + step);
+    renderAnalysisQuestionnaire(questions);
+}
+
+function handleAnalysisAction() {
+    const questions = projectState.project_context?.initial_analysis?.questions || [];
+    if (questions.length === 0) return;
+
+    const lastIndex = questions.length - 1;
+    if (analysisCurrentQuestionIndex >= lastIndex) {
+        saveAnalysisResponse();
+    } else {
+        navigateAnalysisQuestion(1);
+    }
+}
+
+
+function saveAnalysisResponse() {
+    const questions = projectState.project_context?.initial_analysis?.questions || [];
+    if (questions.length === 0) {
+        addMessage('system', 'Nessuna domanda da salvare. Esegui prima l\'analisi iniziale.');
+        return;
+    }
+
+    const selected = getCurrentQuestionSelectedOptions();
+    if (selected.length === 0) {
+        addMessage('system', 'Seleziona almeno un\'opzione prima di salvare.');
+        return;
+    }
+
+    saveAnswersForQuestion(analysisCurrentQuestionIndex, selected);
+
+    projectState.project_context.initial_analysis.completed = true;
+    projectState.project_context.initial_analysis.answers = collectAnalysisAnswers();
+    projectState.project_context.initial_analysis.timestamp = new Date().toISOString();
+    projectState.project_context.initial_analysis_summary = getInitialAnalysisContext();
+    saveToLocalStorage();
+
+    const analysisStatus = document.getElementById('analysis-status');
+    if (analysisStatus) {
+        analysisStatus.textContent = '✅ Risposte salvate. Chiudi overlay e procedi con i tool.';
+    }
+
+    addMessage('system', 'Risposte di analisi salvate. Ora puoi eseguire i tool.');
+    updateAnalysisButtonState();
+    closeAnalysisOverlay();
+}
+
+async function generateInitialAnalysisFromBrief() {
+    const brief = projectState.project.brief_originale || '';
+    if (!brief) {
+        return false;
+    }
+
+    addMessage('system', 'Analisi iniziale mancante. Generazione automatica in corso...');
+
+    const prompt = `
+[ROLE] Agente Analitico
+
+[TASK]
+Leggi questo brief e crea 3 domande a risposta multipla con 4 opzioni (quarta: Altro), con possibilità di selezione multipla, usando i termini degli elementi indicati.
+
+Brief:
+"${brief}"
+
+[NOTA]
+Non includere il target nel set di domande iniziali (verrà analizzato dopo dai tool). Concentrati su:
+- obiettivi business di alto livello (senza metriche troppo specifiche)
+- risorse interne già disponibili (team esistente, skill presenti, competenze attuali)
+- competenze chiave richieste (coding, architettura, UX, data, operations)
+- se in azienda è presente il profilo professionale necessario (sviluppatore, architetto, data engineer, PM)
+- budget disponibile
+- timeline e impegno tempo
+- vincoli e limiti aziendali reali
+
+Includi una domanda precisa tipo:
+"Hai competenze di [coding/backend/devops/UX], oppure in azienda è disponibile il profilo professionale [sviluppatore, architetto, analista, PM]?"
+Se manca il profilo, fai emergere la necessità di soluzioni low-code/no-code.
+
+[OUTPUT]
+{
+  "questions": [
+    {
+      "question": "...",
+      "a": "...",
+      "b": "...",
+      "c": "...",
+      "altro": "...",
+      "multiple": true
+    }
+  ]
+}
+`;
+
+    let generated = '';
+    try {
+        generated = await callLLM(prompt, 'analitico');
+    } catch (e) {
+        addMessage('system', 'Impossibile generare l\'analisi automatica: ' + e.message);
+        return false;
+    }
+
+    projectState.project_context = projectState.project_context || {};
+    projectState.project_context.initial_analysis = {
+        tipologia: 'Auto generata',
+        obiettivo: 'Da definire (vedi domande automatiche)',
+        target: 'Da definire',
+        altro: '',
+        note: generated,
+        generated_questions: generated,
+        completed: true,
+        timestamp: new Date().toISOString()
+    };
+
+    saveToLocalStorage();
+    addMessage('system', 'Analisi iniziale generata automaticamente e salvata nella memoria condivisa. Puoi modificare ulteriormente le risposte.');
+    addManagerMessage('manager', `Analisi iniziale automatica:\n${generated}`);
+
+    return true;
+}
+
+async function ensureInitialAnalysisCompleted() {
+    if (projectState.project_context?.initial_analysis?.completed) {
+        return true;
+    }
+
+    const proceed = confirm('Analisi iniziale non presente. Vuoi procedere comunque? I risultati potrebbero essere meno accurati.');
+    if (proceed) {
+        addMessage('system', 'Attenzione: analisi iniziale assente. Risultati potenzialmente meno accurati.');
+        return true;
+    }
+    addMessage('system', 'Per proseguire, avvia l\'analisi iniziale con il pulsante accanto al brief (Analisi Iniziale).');
+    openAnalysisOverlay();
+    return false;
+}
+
+async function newProject() {
+    if (!confirm('Vuoi creare un nuovo progetto? Il progetto corrente verr� perso se non l\'hai scaricato.')) {
+        return;
+    }
+
     projectState = {
-        project: { brief_originale: '' },
+        project: { brief_originale: '', project_id: '' },
         project_context: {},
         product: {},
         target: {},
@@ -235,7 +844,10 @@ function newProject() {
         adv: {},
         risk_analysis: {}
     };
-    
+
+    const ok = await ensureProjectSlot();
+    if (!ok) return;
+
     completedTools.clear();
     if (document.getElementById('briefInput')) document.getElementById('briefInput').value = '';
     if (document.getElementById('chatMessages')) document.getElementById('chatMessages').innerHTML = '';
@@ -247,19 +859,20 @@ function newProject() {
         managerState.lastGapAnalysis = null;
         managerState.isThinking = false;
     }
-    
+
     document.querySelectorAll('.tool-card').forEach(card => {
         card.classList.remove('completed');
     });
 
     document.querySelectorAll('.tool-play[data-tool]').forEach(btn => {
         btn.classList.remove('loading', 'done', 'disabled');
-        btn.textContent = '▶';
+        btn.textContent = '?';
     });
     setToolsDisabled(false);
-    
+
     saveToLocalStorage();
-    addMessage('system', '🆕 Nuovo progetto creato!');
+    updateAnalysisButtonState();
+    addMessage('system', 'Nuovo progetto creato.');
 }
 
 function downloadProject() {
@@ -409,6 +1022,7 @@ function buildPdfLines(node, depth = 0, path = [], boldFirstLine = false) {
 
     const normalizeKey = (key) => String(key).toLowerCase().replace(/[\s_\-]+/g, '');
     const isCopywritingPath = path.includes('copywriting') || path.includes('copy_variants');
+    const isInitialAnalysisPath = path.includes('initial_analysis') || path.includes('initial_analysis_summary');
 
     if (node === null || node === undefined) return lines;
 
@@ -454,6 +1068,8 @@ function buildPdfLines(node, depth = 0, path = [], boldFirstLine = false) {
         Object.entries(node).forEach(([key, value]) => {
             if (!nodeHasVisibleContent(value)) return;
             if (isCopywritingPath && normalizeKey(key) === 'id') return;
+            if (normalizeKey(key) === 'projectid') return;
+            if (isInitialAnalysisPath && (normalizeKey(key) === 'questions' || normalizeKey(key) === 'answers')) return;
             const prettyKey = prettifyKey(key);
             if (typeof value === 'object' && value !== null) {
                 const bold = boldFirstLine && !firstEmitted;
@@ -715,145 +1331,6 @@ function animateFormattedWords(container, onDone) {
     tick();
 }
 
-function generateManagerResponse(userText) {
-    const lower = userText.toLowerCase();
-    const missing = [];
-    const toolOrder = ['development', 'target', 'competitors', 'swot', 'pricing', 'adv', 'copywriting', 'risk'];
-    toolOrder.forEach(t => {
-        if (!completedTools.has(t)) missing.push(t);
-    });
-
-    if (!projectState.project.brief_originale) {
-        return "Per iniziare, inserisci il brief del progetto nel campo in basso. Poi esegui **Sviluppo**.";
-    }
-
-    if (lower.includes('manca') || lower.includes('cosa')) {
-        if (missing.length === 0) return "Hai completato tutti i tool. Vuoi un riepilogo o una revisione finale?";
-        return `Tool non ancora completati: **${missing.join(', ')}**. Vuoi che ne suggerisca l'ordine?`;
-    }
-
-    if (lower.includes('parametri') || lower.includes('config')) {
-        return `Parametri attuali:\n- ipotesi: ${config.num_hypotheses}\n- personas: ${config.num_personas}\n- competitor: ${config.num_competitor}\n- copy: ${config.num_copy_variants}\n- adv: ${config.num_adv_solutions}\n- scala: ${config.project_scale}`;
-    }
-
-    if (lower.includes('ordine') || lower.includes('prossimo')) {
-        if (missing.length === 0) return "Non ci sono tool mancanti. Vuoi perfezionare un'area specifica?";
-        return `Prossimo suggerito: **${missing[0]}**. Vuoi che lo avvii?`;
-    }
-
-    return "Ok! Dimmi su quale area vuoi che mi concentri (target, pricing, copywriting, adv, rischi).";
-}
-
-// ========================================
-// TOOL EXECUTION
-// ========================================
-
-function getToolButton(toolName) {
-    return document.querySelector(`.tool-play[data-tool="${toolName}"]`);
-}
-
-function setToolButtonState(toolName, state) {
-    const btn = getToolButton(toolName);
-    if (!btn) return;
-    btn.classList.remove('loading', 'done');
-    if (state === 'loading') {
-        btn.classList.add('loading');
-        btn.textContent = '⏳';
-    } else if (state === 'done') {
-        btn.classList.add('done');
-        btn.textContent = '↻';
-    } else {
-        btn.textContent = '▶';
-    }
-}
-
-function setToolsDisabled(disabled, activeToolName = null) {
-    document.querySelectorAll('.tool-play[data-tool]').forEach(btn => {
-        const toolName = btn.getAttribute('data-tool');
-        const shouldDisable = disabled && toolName !== activeToolName;
-        if (shouldDisable) {
-            btn.classList.add('disabled');
-        } else {
-            btn.classList.remove('disabled');
-        }
-    });
-
-    document.querySelectorAll('.spinbox-buttons button').forEach(btn => {
-        if (disabled) {
-            btn.classList.add('disabled');
-        } else {
-            btn.classList.remove('disabled');
-        }
-    });
-}
-
-// Add click handlers to play buttons
-document.querySelectorAll('.tool-play[data-tool]').forEach(btn => {
-    btn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        const toolName = btn.getAttribute('data-tool');
-        runTool(toolName);
-    });
-});
-
-// Manager chat input + AI logic (OpenRouter)
-const managerState = {
-    conversationHistory: [],
-    lastGapAnalysis: null,
-    isThinking: false
-};
-
-function buildManagerPrompt(userMessage) {
-    const lastGap = managerState.lastGapAnalysis?.report_html || "Nessun report recente disponibile";
-    const history = managerState.conversationHistory.slice(-6);
-    const promptState = sanitizeProjectState(projectState);
-    return `
-[ROLE] AI Manager Strategico
-[CONTEXT]
-Stato progetto attuale:
-${JSON.stringify(promptState, null, 2)}
-
-Configurazione tool attuale:
-${JSON.stringify(config, null, 2)}
-
-Messaggio utente: "${userMessage}"
-
-Ultimo report lacune disponibile:
-${lastGap}
-
-Cronologia sintetica conversazione:
-${JSON.stringify(history, null, 2)}
-
-[TASK]
-Analizza il messaggio e determina quale delle seguenti azioni è più appropriata:
-1. COMPILAZIONE_PARAMETRI - L'utente ha dato un brief iniziale e devi compilare i parametri per i tool non ancora attivati
-2. MODIFICA_PARAMETRI - L'utente vuole modificare/migliorare un tool già eseguito o i suoi parametri
-3. SPIEGAZIONE_TOOL - L'utente chiede come funziona un tool o vuole suggerimenti
-4. CONVERSAZIONE - L'utente vuole discutere/rifinire l'idea senza azioni tecniche
-5. RIMOZIONE_SEZIONE - L'utente vuole rimuovere/resettare un tool completato
-6. RISOLVI_LACUNE - L'utente vuole applicare/modificare per risolvere le lacune emerse dall'ultimo report
-
-[OUTPUT]
-Rispondi SOLO in JSON con questa struttura:
-{
-  "azione": "TIPO_AZIONE",
-  "tool_coinvolti": ["nome_tool1", "nome_tool2"],
-  "parametri_suggeriti": {
-    "num_personas": 3,
-    "budget_totale": "5000"
-  },
-  "risposta_utente": "Messaggio chiaro e conciso da mostrare all'utente (max 150 parole)",
-  "richiedi_documentazione": ["nome_tool"] // solo se serve spiegazione approfondita
-}
-
-REGOLE:
-- Sii pragmatico e diretto
-- Se l'utente è vago, proponi valori sensati basati sul contesto
-- Non chiedere conferme inutili, agisci in modo proattivo
-- Rispondi sempre in italiano
-`;
-}
-
 async function runManagerAI(userMessage) {
     if (!config.apiKey) {
         addManagerMessage('manager', "Configura la API Key nelle impostazioni per usare il Manager.");
@@ -878,7 +1355,7 @@ async function runManagerAI(userMessage) {
         const reply = result?.risposta_utente || "Ok, ho aggiornato le indicazioni in base allo stato progetto.";
         addManagerMessage('manager', reply);
     } catch (err) {
-        addManagerMessage('manager', `❌ Errore Manager: ${err.message}`);
+        addManagerMessage('manager', `? Errore Manager: ${err.message}`);
     } finally {
         managerState.isThinking = false;
         if (managerSend) managerSend.disabled = false;
@@ -933,7 +1410,7 @@ async function runTool(toolName) {
     refreshProjectStateFromStorage();
     // Validate
     if (!config.apiKey) {
-        addMessage('system', '⚠️ Configura prima la API Key nelle impostazioni');
+        addMessage('system', 'Configura prima la API Key nelle impostazioni');
         showSettings();
         return;
     }
@@ -946,10 +1423,24 @@ async function runTool(toolName) {
     }
 
     if (!projectState.project.brief_originale) {
-        addMessage('system', '⚠️ Inserisci prima il brief del progetto');
+        addMessage('system', 'Inserisci prima il brief del progetto');
         return;
     }
-    
+
+    const analysisOk = await ensureInitialAnalysisCompleted();
+    if (!analysisOk) {
+        addMessage('system', 'L\'analisi iniziale è richiesta; prova a salvarla o attendi la generazione automatica.');
+        return;
+    }
+
+    const slotOk = await ensureProjectSlot();
+    if (!slotOk) return;
+
+    // Aggiorna contesto analisi iniziale nell'oggetto progetto
+    projectState.project_context = projectState.project_context || {};
+    projectState.project_context.initial_analysis_summary = getInitialAnalysisContext();
+    saveToLocalStorage();
+
     // Update config from UI
     config.project_scale = document.getElementById('scale-development')?.value || 'PMI';
     config.budget_totale = document.getElementById('budget-adv')?.value || '5000';
@@ -1016,7 +1507,12 @@ async function runTool(toolName) {
 
 async function callLLM(prompt, agentType = 'analitico') {
     const temperature = agentType === 'creativo' ? 0.5 : 0.1;
-    
+
+    const allowed = consumeQuota('llm', config.apiKey, LLM_DAILY_LIMIT);
+    if (!allowed) {
+        throw new Error(`Limite giornaliero LLM (${LLM_DAILY_LIMIT}) raggiunto per questa API Key.`);
+    }
+
     const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
         method: 'POST',
         headers: {
@@ -1055,6 +1551,74 @@ async function callLLM(prompt, agentType = 'analitico') {
     return data.choices[0].message.content;
 }
 
+function truncateText(text, maxLen = 280) {
+    if (!text) return '';
+    const clean = String(text).replace(/\s+/g, ' ').trim();
+    if (clean.length <= maxLen) return clean;
+    return clean.slice(0, maxLen - 1) + '...';
+}
+
+async function callTavilySearch(query, searchDepth = 'basic', apiKey = config.tavilyApiKey) {
+    if (!apiKey) return null;
+    const allowed = consumeQuota('tavily', apiKey, TAVILY_DAILY_LIMIT);
+    if (!allowed) {
+        addMessage('system', `Limite giornaliero Tavily (${TAVILY_DAILY_LIMIT}) raggiunto per questa API Key.`);
+        return null;
+    }
+    try {
+        const response = await fetch('https://api.tavily.com/search', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${apiKey}`
+            },
+            body: JSON.stringify({
+                query,
+                search_depth: searchDepth
+            })
+        });
+        if (!response.ok) return null;
+        return await response.json();
+    } catch (err) {
+        console.warn('Tavily search failed', err);
+        return null;
+    }
+}
+
+async function getTavilyData(query, searchDepth = 'basic') {
+    const inlineKey = document.getElementById('tavily-key')?.value || '';
+    const resolvedKey = (config.tavilyApiKey || inlineKey).trim();
+    if (!resolvedKey) {
+        const proceed = confirm('Tavily API Key non presente. Vuoi procedere senza ricerca web? I risultati potrebbero essere meno accurati.');
+        if (!proceed) return { cancelled: true, data: null };
+        addMessage('system', 'Attenzione: Tavily non configurato. Risultati potenzialmente meno accurati.');
+        return { cancelled: false, data: null };
+    }
+    if (!config.tavilyApiKey && resolvedKey) {
+        config.tavilyApiKey = resolvedKey;
+    }
+    addMessage('system', 'Debug: Tavily in esecuzione...');
+    const data = await callTavilySearch(query, searchDepth, resolvedKey);
+    if (!data) {
+        addMessage('system', 'Debug: Tavily non ha restituito risultati.');
+    } else {
+        const count = Array.isArray(data.results) ? data.results.length : 0;
+        addMessage('system', `Debug: Tavily completato (${count} risultati).`);
+    }
+    return { cancelled: false, data };
+}
+
+function formatTavilySourcesForPrompt(tavilyData, maxResults = TAVILY_MAX_RESULTS) {
+    if (!tavilyData || !Array.isArray(tavilyData.results)) return '';
+    const items = tavilyData.results.slice(0, maxResults).map((item, idx) => {
+        const title = item.title || 'Titolo non disponibile';
+        const url = item.url || '';
+        const snippet = truncateText(item.content || item.snippet || item.text || '', 260);
+        return `${idx + 1}. ${title} | ${url} | ${snippet}`.trim();
+    });
+    return items.join('\n');
+}
+
 // ========================================
 // TOOL IMPLEMENTATIONS
 // ========================================
@@ -1071,6 +1635,7 @@ async function runDevelopment() {
     const brief = projectState.project.brief_originale;
     const scale = config.project_scale;
     const numIpotesi = config.num_hypotheses;
+    const initialAnalysis = getInitialAnalysisContext();
     
     const scaleData = {
         "Grande azienda": {
@@ -1093,10 +1658,17 @@ async function runDevelopment() {
             tech: "No-code: Bubble, Webflow, Airtable, Zapier",
             time: "1-3 mesi MVP",
             no: "NO sviluppo custom, NO React/Vue, NO backend custom"
+        },
+        "Start-up/Fai-da-te": {
+            budget: "0-50k €",
+            team: "1-3 persone",
+            tech: "No-code: Bubble, Webflow, Airtable, Zapier",
+            time: "1-3 mesi MVP",
+            no: "NO sviluppo custom, NO React/Vue, NO backend custom"
         }
     };
     
-    const constraints = scaleData[scale];
+    const constraints = scaleData[scale] || scaleData["PMI"];
     
     const prompt = `
 [ROLE] Agente Creativo Strategico
@@ -1108,6 +1680,9 @@ Team: ${constraints.team}
 Tech: ${constraints.tech}
 Time: ${constraints.time}
 VIETATO: ${constraints.no}
+
+[CONTEXT - ANALISI INIZIALE]
+${initialAnalysis || 'Nessuna analisi iniziale disponibile'}
 
 [TASK]
 Genera ${numIpotesi} ipotesi REALISTICHE per: "${brief}"
@@ -1137,12 +1712,24 @@ async function runTarget() {
     const brief = projectState.project.brief_originale;
     const product = projectState.product || {};
     const numPersonas = config.num_personas;
+    const initialAnalysis = getInitialAnalysisContext();
+
+    const tavilyResult = await getTavilyData(`Target e buyer personas per: ${brief}`, 'advanced');
+    if (tavilyResult.cancelled) {
+        throw new Error('Operazione annullata dall\'utente.');
+    }
+    const tavilySources = formatTavilySourcesForPrompt(tavilyResult.data, config.num_personas);
     
     const prompt = `
 [ROLE] Marketing & Target Analysis Expert
 
 [CONTEXT]
+Analisi iniziale:
+${initialAnalysis || 'Nessuna analisi iniziale disponibile.'}
+
 Prodotto: ${brief}
+Fonti web (Tavily, aggiornate):
+${tavilySources || 'Nessuna fonte disponibile.'}
 Problema: ${product.problema || 'N/A'}
 Benefici: ${product.benefici_utente || 'N/A'}
 
@@ -1174,12 +1761,23 @@ Rispondi SOLO JSON in italiano.
 async function runCompetitors() {
     const brief = projectState.project.brief_originale;
     const numComp = config.num_competitor;
+    const initialAnalysis = getInitialAnalysisContext();
+    const tavilyResult = await getTavilyData(`Competitor aziende per: ${brief}`, 'advanced');
+    if (tavilyResult.cancelled) {
+        throw new Error('Operazione annullata dall\'utente.');
+    }
+    const tavilySources = formatTavilySourcesForPrompt(tavilyResult.data, config.num_competitor);
     
     const prompt = `
 [ROLE] Competitive Analysis Expert
 
 [CONTEXT]
+Analisi iniziale:
+${initialAnalysis || 'Nessuna analisi iniziale disponibile.'}
+
 Prodotto: ${brief}
+Fonti web (Tavily, aggiornate):
+${tavilySources || 'Nessuna fonte disponibile.'}
 
 [TASK]
 Trova ${numComp} competitor REALI attualmente operativi.
@@ -1205,13 +1803,24 @@ Rispondi SOLO JSON in italiano.
 async function runSWOT() {
     const brief = projectState.project.brief_originale;
     const target = projectState.target?.analisi_area || 'Mercato generale';
-    
+    const initialAnalysis = getInitialAnalysisContext();
+    const tavilyResult = await getTavilyData(`Trend e fattori PESTEL per: ${brief}`, 'advanced');
+    if (tavilyResult.cancelled) {
+        throw new Error('Operazione annullata dall\'utente.');
+    }
+    const tavilySources = formatTavilySourcesForPrompt(tavilyResult.data, TAVILY_MAX_RESULTS);
+
     const prompt = `
 [ROLE] Strategic Analyst
 
 [CONTEXT]
+Analisi iniziale:
+${initialAnalysis || 'Nessuna analisi iniziale disponibile.'}
+
 Prodotto: ${brief}
 Target: ${target}
+Fonti web (Tavily, aggiornate):
+${tavilySources || 'Nessuna fonte disponibile.'}
 
 [TASK]
 Genera analisi PESTEL + SWOT.
@@ -1229,7 +1838,7 @@ Genera analisi PESTEL + SWOT.
   "swot": {
     "strengths": ["punto forza 1", "punto forza 2"],
     "weaknesses": ["debolezza 1", "debolezza 2"],
-    "opportunities": ["opportunità 1", "opportunità 2"],
+    "opportunities": ["opportunit� 1", "opportunit� 2"],
     "threats": ["minaccia 1", "minaccia 2"]
   }
 }
@@ -1245,11 +1854,15 @@ async function runCopywriting() {
     const brand = getBrandName();
     const product = projectState.product || {};
     const numVarianti = config.num_copy_variants;
+    const initialAnalysis = getInitialAnalysisContext();
     
     const prompt = `
 [ROLE] Copywriter Neuromarketing
 
 [CONTEXT]
+Analisi iniziale:
+${initialAnalysis || 'Nessuna analisi iniziale disponibile.'}
+
 Brand: ${brand}
 Problema: ${product.problema || 'N/A'}
 Benefici: ${product.benefici_utente || 'N/A'}
@@ -1289,16 +1902,28 @@ Rispondi SOLO JSON in italiano.
 
 async function runPricing() {
     const brand = getBrandName();
+    const brief = projectState.project.brief_originale;
     const product = projectState.product || {};
     const target = projectState.target?.analisi_area || 'Mercato generale';
+    const initialAnalysis = getInitialAnalysisContext();
+    const tavilyResult = await getTavilyData(`Prezzi, range di mercato e competitor per: ${brief}`, 'advanced');
+    if (tavilyResult.cancelled) {
+        throw new Error('Operazione annullata dall\'utente.');
+    }
+    const tavilySources = formatTavilySourcesForPrompt(tavilyResult.data, TAVILY_MAX_RESULTS);
     
     const prompt = `
 [ROLE] Pricing Strategist
 
 [CONTEXT]
+Analisi iniziale:
+${initialAnalysis || 'Nessuna analisi iniziale disponibile.'}
+
 Brand: ${brand}
 Problema: ${product.problema || 'N/A'}
 Target: ${target}
+Fonti web (Tavily, aggiornate):
+${tavilySources || 'Nessuna fonte disponibile.'}
 
 [PRINCIPIO]
 Prezzo = VALORE PERCEPITO, NON costi + margine.
@@ -1320,7 +1945,7 @@ Considera CTR medio 0.5-2%. Posizionamento basso richiede milioni impression.
   "fasce": [
     {
       "posizionamento": "alto",
-      "prezzo_unitario": "Es: 5000€/anno",
+      "prezzo_unitario": "Es: 5000�/anno",
       "scenario_clienti": {
         "pessimistico": {"clienti": 10, "ricavo_annuo_eur": 50000},
         "realistico": {"clienti": 50, "ricavo_annuo_eur": 250000},
@@ -1348,11 +1973,15 @@ async function runADV() {
     const target = projectState.target || {};
     const budget = config.budget_totale;
     const numCampagne = config.num_adv_solutions;
+    const initialAnalysis = getInitialAnalysisContext();
     
     const prompt = `
 [ROLE] Marketing & ADV Strategist
 
 [CONTEXT]
+Analisi iniziale:
+${initialAnalysis || 'Nessuna analisi iniziale disponibile.'}
+
 Brand: ${brand}
 Problema: ${product.problema || 'N/A'}
 Target: ${target.analisi_area || 'Generale'}
@@ -1403,11 +2032,15 @@ Rispondi SOLO JSON in italiano.
 
 async function runRisk() {
     const brand = getBrandName();
+    const initialAnalysis = getInitialAnalysisContext();
     
     const prompt = `
 [ROLE] Risk Management Expert
 
 [CONTEXT]
+Analisi iniziale:
+${initialAnalysis || 'Nessuna analisi iniziale disponibile.'}
+
 Progetto: ${brand}
 Contesto completo: ${JSON.stringify(projectState, null, 2)}
 
@@ -1476,6 +2109,52 @@ function parseJsonResponse(rawText) {
         throw new Error('Risposta non in JSON valido. Prova a rigenerare il tool.');
     }
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 

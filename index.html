@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="it">
 <head>
     <meta charset="UTF-8">
@@ -120,6 +120,53 @@
             flex-direction: column;
             gap: 10px;
             transition: border 0.2s, box-shadow 0.2s;
+        }
+
+        .initial-analysis-panel {
+            background: var(--surface);
+            border: 1px solid var(--accent-border);
+            border-radius: 12px;
+            padding: 12px;
+            margin-bottom: 10px;
+            font-size: 13px;
+        }
+
+        .initial-analysis-panel h3 {
+            margin-bottom: 8px;
+            font-size: 14px;
+        }
+
+        .initial-analysis-panel label {
+            display: block;
+            margin-bottom: 6px;
+        }
+
+        .initial-analysis-panel textarea,
+        .initial-analysis-panel input,
+        .initial-analysis-panel select {
+            width: 100%;
+            margin-bottom: 8px;
+            padding: 8px;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            background: var(--card);
+            color: var(--text);
+        }
+
+        .initial-analysis-panel .analysis-actions {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+
+        .initial-analysis-panel .analysis-actions button {
+            border: 1px solid var(--accent-border);
+            background: var(--accent);
+            color: #fff;
+            padding: 7px 12px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 12px;
         }
 
         .tool-card:hover {
@@ -644,12 +691,21 @@
             color: white;
             font-weight: 700;
             cursor: pointer;
+            transition: background 0.2s, color 0.2s;
         }
 
         .settings-btn.secondary {
             background: var(--card);
             border-color: var(--border);
             color: var(--text);
+        }
+
+        .settings-btn.disabled,
+        .settings-btn:disabled {
+            background: var(--border);
+            border-color: var(--border);
+            color: var(--muted);
+            cursor: not-allowed;
         }
     </style>
 </head>
@@ -660,8 +716,8 @@
             <section class="tool-strip">
                 <article class="tool-card" data-tool="development">
                     <div class="tool-header">
-                        <button class="tool-play" data-tool="development">▶</button>
-                        <div class="tool-title">📌 Sviluppo</div>
+                        <button class="tool-play" data-tool="development">►</button>
+                        <div class="tool-title">🛠️ Sviluppo</div>
                         <div class="tool-controls">
                             <div class="spinbox">
                                 <input type="number" value="3" min="1" max="5" data-spin="development" />
@@ -677,8 +733,8 @@
 
                 <article class="tool-card" data-tool="target">
                     <div class="tool-header">
-                        <button class="tool-play" data-tool="target">▶</button>
-                        <div class="tool-title">🎯 Analisi settore</div>
+                        <button class="tool-play" data-tool="target">►</button>
+                        <div class="tool-title">🔍 Analisi settore</div>
                         <div class="tool-controls">
                             <div class="spinbox">
                                 <input type="number" value="3" min="1" max="5" data-spin="target" />
@@ -694,8 +750,8 @@
 
                 <article class="tool-card" data-tool="competitors">
                     <div class="tool-header">
-                        <button class="tool-play" data-tool="competitors">▶</button>
-                        <div class="tool-title">🏢 Concorrenza</div>
+                        <button class="tool-play" data-tool="competitors">►</button>
+                        <div class="tool-title">🏁 Concorrenza</div>
                         <div class="tool-controls">
                             <div class="spinbox">
                                 <input type="number" value="3" min="1" max="5" data-spin="competitors" />
@@ -711,7 +767,7 @@
 
                 <article class="tool-card" data-tool="swot">
                     <div class="tool-header">
-                        <button class="tool-play" data-tool="swot">▶</button>
+                        <button class="tool-play" data-tool="swot">►</button>
                         <div class="tool-title">📊 SWOT</div>
                     </div>
                     <div class="tool-description">Valutazione analitica delle dinamiche interne ed esterne che influenzano il potenziale del progetto.</div>
@@ -719,15 +775,15 @@
 
                 <article class="tool-card" data-tool="pricing">
                     <div class="tool-header">
-                        <button class="tool-play" data-tool="pricing">▶</button>
-                        <div class="tool-title">💶 Prezzo</div>
+                        <button class="tool-play" data-tool="pricing">►</button>
+                        <div class="tool-title">💰 Prezzo</div>
                     </div>
                     <div class="tool-description">Definizione di tre fasce prezzo (alto/medio/basso) e scelta del posizionamento economico consigliato.</div>
                 </article>
 
                 <article class="tool-card" data-tool="adv">
                     <div class="tool-header">
-                        <button class="tool-play" data-tool="adv">▶</button>
+                        <button class="tool-play" data-tool="adv">►</button>
                         <div class="tool-title">📣 Campagna pubblicitaria</div>
                         <div class="tool-controls">
                             <div class="spinbox">
@@ -744,7 +800,7 @@
 
                 <article class="tool-card" data-tool="copywriting">
                     <div class="tool-header">
-                        <button class="tool-play" data-tool="copywriting">▶</button>
+                        <button class="tool-play" data-tool="copywriting">►</button>
                         <div class="tool-title">✍️ Scrittura</div>
                         <div class="tool-controls">
                             <div class="spinbox">
@@ -761,7 +817,7 @@
 
                 <article class="tool-card" data-tool="risk">
                     <div class="tool-header">
-                        <button class="tool-play" data-tool="risk">▶</button>
+                        <button class="tool-play" data-tool="risk">►</button>
                         <div class="tool-title">⚠️ Analisi Pre-Mortem</div>
                     </div>
                     <div class="tool-description">Simulazione preventiva delle criticità operative e dei fattori di rischio esterni.</div>
@@ -776,8 +832,8 @@
                     <button class="icon-button" id="new-project-btn" title="Nuovo progetto">+</button>
                 </div>
                 <div class="top-group">
-                    <button class="icon-button" id="export-pdf-btn" title="Esporta PDF">📄</button>
-                    <button class="icon-button" id="settings-btn" title="Impostazioni">⚙</button>
+                    <button class="icon-button" id="export-pdf-btn" title="Esporta PDF">📤</button>
+                    <button class="icon-button" id="settings-btn" title="Impostazioni">⚙️</button>
                 </div>
             </header>
 
@@ -805,6 +861,7 @@
             <section class="bottom-brief">
                 <span class="brief-label">BRIEF:</span>
                 <input class="brief-input" id="briefInput" type="text" placeholder="Scrivi qui il brief del progetto e clicca Play su un tool..." />
+                <button class="settings-btn" id="start-analysis-btn" style="margin-left:8px;">Analisi Iniziale</button>
                 <select class="scale-select" id="scale-development" title="Seleziona la scala del progetto">
                     <option>Grande azienda</option>
                     <option selected>PMI</option>
@@ -814,16 +871,39 @@
         </main>
     </div>
 
+    <!-- ANALISI BRIEF OVERLAY -->
+    <div class="modal-overlay" id="analysis-overlay" aria-hidden="true">
+        <div class="settings-modal" role="dialog" aria-modal="true" aria-label="Analisi Brief">
+            <div class="settings-header">
+                <div class="settings-title">Analisi iniziale del brief</div>
+                <button class="settings-close" id="analysis-close">✕</button>
+            </div>
+            <div class="settings-body">
+                <div class="settings-help">L'IA analizza il brief, identifica le aree dove servono dettagli e crea domande mirate (costi, competenze, risorse interne, tempo). Rispondi con le opzioni per procedere.</div>
+                <div id="analysis-status" style="padding: 8px; margin-bottom: 8px; background: rgba(58, 134, 255, 0.15); border: 1px solid var(--accent-border); border-radius: 8px; font-weight: 600;">Stato: in attesa dell'analisi...</div>
+                <div id="analysis-questions" style="margin-top:20px;">
+                    <!-- le domande generate verranno inserite qui -->
+                </div>
+            </div>
+            <div class="settings-footer">
+                <button class="settings-btn" id="analysis-prev" disabled>◀</button>
+                <button class="settings-btn" id="analysis-action" disabled>Avanti</button>
+                <div style="flex:1"></div>
+                <button class="settings-btn secondary" id="analysis-cancel">Annulla</button>
+            </div>
+        </div>
+    </div>
+
     <!-- SETTINGS MODAL -->
     <div class="modal-overlay" id="settings-modal" aria-hidden="true">
         <div class="settings-modal" role="dialog" aria-modal="true" aria-label="Impostazioni">
             <div class="settings-header">
                 <div class="settings-title">Impostazioni</div>
-                <button class="settings-close" id="settings-close">✕</button>
+                <button class="settings-close" id="settings-close">✖️</button>
             </div>
             <div class="settings-body">
                 <div class="settings-section">
-                    <h4>🏢 Provider AI</h4>
+                    <h4>🤖 Provider AI</h4>
                     <select class="settings-select" id="provider-select">
                         <option value="openrouter">openrouter</option>
                         <option value="openai">openai</option>
@@ -834,12 +914,19 @@
                 </div>
 
                 <div class="settings-section">
-                    <h4>🔑 API Key</h4>
-                    <input class="settings-input" id="api-key" type="password" placeholder="sk-or-v1-..." />
-                </div>
+    <h4>🔑 API Key (LLM)</h4>
+    <input class="settings-input" id="api-key" type="password" placeholder="sk-or-v1-..." />
+</div>
+
+<div class="settings-section">
+    <h4>Tavily API Key</h4>
+    <input class="settings-input" id="tavily-key" type="password" placeholder="tvly-..." />
+    <button class="settings-btn" id="tavily-test">Test Tavily</button>
+    <div class="settings-help" id="tavily-test-result"></div>
+</div>
 
                 <div class="settings-section">
-                    <h4>🤖 Modello AI</h4>
+                    <h4>🧠 Modello AI</h4>
                     <div class="settings-help" id="model-help">
                         Incolla il nome completo del modello (es: google/gemma-3-27b-it:free)
                     </div>
@@ -849,7 +936,7 @@
                 </div>
 
                 <div class="settings-section">
-                    <h4>🔤 Dimensione Font Chatbox</h4>
+                    <h4>🔠 Dimensione Font Chatbox</h4>
                     <div class="settings-row">
                         <div id="font-size-label">13 px</div>
                         <input type="range" id="font-size" min="10" max="24" value="13" />
@@ -1038,10 +1125,13 @@
         function openSettings() {
             const savedApiKey = localStorage.getItem("innuendoai_api_key") || "";
             const savedModel = localStorage.getItem("innuendoai_model") || "";
+            const savedTavilyKey = localStorage.getItem("innuendoai_tavily_key") || "";
             const savedProvider = localStorage.getItem("innuendoai_provider") || "openrouter";
             const apiKeyField = document.getElementById("api-key");
+            const tavilyKeyField = document.getElementById("tavily-key");
             const modelField = document.getElementById("model-input");
             if (apiKeyField) apiKeyField.value = savedApiKey;
+            if (tavilyKeyField) tavilyKeyField.value = savedTavilyKey;
             if (modelField) modelField.value = savedModel;
             providerSelect.value = savedProvider;
             const hint = providerHints[providerSelect.value];
@@ -1095,9 +1185,11 @@
 
         settingsSave.addEventListener("click", () => {
             const apiKey = document.getElementById("api-key")?.value || "";
+            const tavilyKey = document.getElementById("tavily-key")?.value || "";
             const model = document.getElementById("model-input")?.value || "";
             const provider = document.getElementById("provider-select")?.value || "openrouter";
             if (apiKey) localStorage.setItem("innuendoai_api_key", apiKey);
+            if (tavilyKey) localStorage.setItem("innuendoai_tavily_key", tavilyKey);
             if (model) localStorage.setItem("innuendoai_model", model);
             localStorage.setItem("innuendoai_provider", provider);
             closeSettings();
@@ -1176,3 +1268,5 @@
     <script src="app.js"></script>
 </body>
 </html>
+
+
