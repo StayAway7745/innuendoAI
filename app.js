@@ -28,11 +28,20 @@ let config = {
     tavilyApiKey: ''
 };
 
+let managerState = {
+    conversationHistory: [],
+    lastGapAnalysis: null,
+    isThinking: false
+};
+
 const PROJECT_LIMIT = 5;
 const PROJECT_COUNT_KEY = 'innuendoai_project_count';
 const LLM_DAILY_LIMIT = 50;
 const TAVILY_DAILY_LIMIT = 20;
 const TAVILY_MAX_RESULTS = 5;
+const INITIAL_ANALYSIS_TIMEOUT_MS = 40000;
+const INITIAL_ANALYSIS_SOFT_TIMEOUT_MS = 15000;
+const ALLOW_REDO_INITIAL_ANALYSIS = true;
 
 function getProjectCount() {
     const raw = localStorage.getItem(PROJECT_COUNT_KEY);
@@ -75,6 +84,10 @@ function consumeQuota(type, apiKey, limit) {
 
 let completedTools = new Set();
 let analysisCurrentQuestionIndex = 0;
+let analysisInFlight = false;
+let analysisAbortController = null;
+let analysisSoftTimeoutId = null;
+let analysisElapsedIntervalId = null;
 
 function sanitizeProjectState(state) {
     if (!state || typeof state !== 'object') return state;
@@ -150,11 +163,11 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     const analysisClose = document.getElementById('analysis-close');
     if (analysisClose) {
-        analysisClose.addEventListener('click', closeAnalysisOverlay);
+        analysisClose.addEventListener('click', () => cancelAnalysisRequest({ closeOverlay: true }));
     }
     const analysisCancel = document.getElementById('analysis-cancel');
     if (analysisCancel) {
-        analysisCancel.addEventListener('click', closeAnalysisOverlay);
+        analysisCancel.addEventListener('click', () => cancelAnalysisRequest({ closeOverlay: true }));
     }
     const analysisPrev = document.getElementById('analysis-prev');
     if (analysisPrev) {
@@ -231,12 +244,21 @@ function updateAnalysisButtonState() {
     const btn = document.getElementById('start-analysis-btn');
     if (!btn) return;
     const completed = !!projectState.project_context?.initial_analysis?.completed;
-    btn.disabled = completed;
-    btn.classList.toggle('disabled', completed);
-    btn.style.opacity = completed ? '0.5' : '1';
-    btn.style.pointerEvents = completed ? 'none' : 'auto';
+    const shouldDisable = completed && !ALLOW_REDO_INITIAL_ANALYSIS;
+    btn.disabled = shouldDisable;
+    btn.classList.toggle('disabled', shouldDisable);
+    btn.style.opacity = shouldDisable ? '0.5' : '1';
+    btn.style.pointerEvents = shouldDisable ? 'none' : 'auto';
     btn.textContent = completed ? 'Analisi iniziale ✓' : 'Analisi Iniziale';
     btn.title = completed ? 'Analisi iniziale già completata' : 'Analisi iniziale';
+}
+
+function setInitialAnalysisCompleted(value) {
+    projectState.project_context = projectState.project_context || {};
+    projectState.project_context.initial_analysis = projectState.project_context.initial_analysis || {};
+    projectState.project_context.initial_analysis.completed = !!value;
+    saveToLocalStorage();
+    updateAnalysisButtonState();
 }
 
 function setToolButtonState(toolName, state) {
@@ -251,7 +273,7 @@ function setToolButtonState(toolName, state) {
             btn.textContent = '⏳';
             break;
         case 'done':
-            btn.textContent = '✅';
+            btn.textContent = '🔄';
             break;
         case 'disabled':
             btn.textContent = '⏸';
@@ -442,6 +464,13 @@ function openAnalysisOverlay() {
         action.classList.add('disabled');
         action.textContent = 'Avanti';
     }
+
+    const cancel = document.getElementById('analysis-cancel');
+    if (cancel) {
+        cancel.disabled = false;
+        cancel.classList.remove('disabled');
+        cancel.textContent = 'Annulla';
+    }
 }
 
 function closeAnalysisOverlay() {
@@ -449,6 +478,29 @@ function closeAnalysisOverlay() {
     if (!overlay) return;
     overlay.classList.remove('active');
     overlay.setAttribute('aria-hidden', 'true');
+}
+
+function cancelAnalysisRequest({ closeOverlay = true } = {}) {
+    if (analysisInFlight && analysisAbortController) {
+        analysisAbortController.abort();
+    }
+    analysisInFlight = false;
+    analysisAbortController = null;
+    if (analysisSoftTimeoutId) {
+        clearTimeout(analysisSoftTimeoutId);
+        analysisSoftTimeoutId = null;
+    }
+    if (analysisElapsedIntervalId) {
+        clearInterval(analysisElapsedIntervalId);
+        analysisElapsedIntervalId = null;
+    }
+    const analysisStatus = document.getElementById('analysis-status');
+    if (analysisStatus) {
+        analysisStatus.textContent = '⏹️ Analisi annullata. Puoi riprovare quando vuoi.';
+    }
+    if (closeOverlay) {
+        closeAnalysisOverlay();
+    }
 }
 
 async function runBriefAnalysis() {
@@ -466,6 +518,26 @@ async function runBriefAnalysis() {
 
     const analysisStatus = document.getElementById('analysis-status');
     if (analysisStatus) analysisStatus.textContent = 'Stato: 🎯 Generazione in corso... Attendere prego.';
+
+    analysisInFlight = true;
+    analysisAbortController = new AbortController();
+    if (analysisSoftTimeoutId) clearTimeout(analysisSoftTimeoutId);
+    analysisSoftTimeoutId = setTimeout(() => {
+        if (!analysisInFlight) return;
+        const status = document.getElementById('analysis-status');
+        if (status) {
+            status.textContent = 'Stato: ⏳ Sta impiegando più del previsto. Puoi annullare e riprovare.';
+        }
+    }, INITIAL_ANALYSIS_SOFT_TIMEOUT_MS);
+    const analysisStart = performance.now();
+    if (analysisElapsedIntervalId) clearInterval(analysisElapsedIntervalId);
+    analysisElapsedIntervalId = setInterval(() => {
+        if (!analysisInFlight) return;
+        const status = document.getElementById('analysis-status');
+        if (!status) return;
+        const elapsedSec = Math.round((performance.now() - analysisStart) / 1000);
+        status.textContent = `Stato: 🎯 Generazione in corso... (${elapsedSec}s)`;
+    }, 1000);
 
     const toolList = ['development', 'target', 'competitors', 'swot', 'copywriting', 'pricing', 'adv', 'risk'];
     const prompt = `
@@ -507,12 +579,57 @@ Rispondi solo JSON valido in italiano.
 `;
 
     let output;
+    let metaInfo = null;
     try {
-        output = await callLLM(prompt, 'analitico');
+        output = await callLLM(prompt, 'analitico', {
+            timeoutMs: INITIAL_ANALYSIS_TIMEOUT_MS,
+            signal: analysisAbortController.signal,
+            onMeta: (meta) => {
+                metaInfo = meta;
+                const status = document.getElementById('analysis-status');
+                if (!status) return;
+                const parts = [];
+                if (Number.isFinite(meta.queueMs)) parts.push(`coda: ${Math.round(meta.queueMs / 1000)}s`);
+                if (Number.isFinite(meta.processingMs)) parts.push(`modello: ${Math.round(meta.processingMs / 1000)}s`);
+                if (Number.isFinite(meta.totalMs)) parts.push(`totale: ${Math.round(meta.totalMs / 1000)}s`);
+                if (parts.length) {
+                    status.textContent = `Stato: ✅ Risposta ricevuta (${parts.join(', ')}). Elaborazione...`;
+                }
+            }
+        });
     } catch (err) {
         if (analysisStatus) analysisStatus.textContent = '❌ Errore durante l\'analisi: ' + err.message;
         addMessage('system', `Errore analisi brief: ${err.message}`);
+        analysisInFlight = false;
+        analysisAbortController = null;
+        if (analysisSoftTimeoutId) {
+            clearTimeout(analysisSoftTimeoutId);
+            analysisSoftTimeoutId = null;
+        }
+        if (analysisElapsedIntervalId) {
+            clearInterval(analysisElapsedIntervalId);
+            analysisElapsedIntervalId = null;
+        }
         return;
+    }
+    analysisInFlight = false;
+    analysisAbortController = null;
+    if (analysisSoftTimeoutId) {
+        clearTimeout(analysisSoftTimeoutId);
+        analysisSoftTimeoutId = null;
+    }
+    if (analysisElapsedIntervalId) {
+        clearInterval(analysisElapsedIntervalId);
+        analysisElapsedIntervalId = null;
+    }
+    if (metaInfo) {
+        const parts = [];
+        if (Number.isFinite(metaInfo.queueMs)) parts.push(`coda: ${Math.round(metaInfo.queueMs / 1000)}s`);
+        if (Number.isFinite(metaInfo.processingMs)) parts.push(`modello: ${Math.round(metaInfo.processingMs / 1000)}s`);
+        if (Number.isFinite(metaInfo.totalMs)) parts.push(`totale: ${Math.round(metaInfo.totalMs / 1000)}s`);
+        if (parts.length) {
+            addMessage('system', `Debug: Breakdown tempi analisi iniziale -> ${parts.join(', ')}`);
+        }
     }
 
     let parsed;
@@ -818,18 +935,17 @@ async function ensureInitialAnalysisCompleted() {
         return true;
     }
 
-    const proceed = confirm('Analisi iniziale non presente. Vuoi procedere comunque? I risultati potrebbero essere meno accurati.');
+    const proceed = confirm('Analisi iniziale non presente. Vuoi procedere comunque? I risultati potrebbero essere meno accurati o pi\u00F9 incompleti.');
     if (proceed) {
         addMessage('system', 'Attenzione: analisi iniziale assente. Risultati potenzialmente meno accurati.');
         return true;
     }
-    addMessage('system', 'Per proseguire, avvia l\'analisi iniziale con il pulsante accanto al brief (Analisi Iniziale).');
-    openAnalysisOverlay();
+    addMessage('system', 'Esecuzione annullata. Se vuoi, puoi avviare l\'analisi iniziale con il pulsante accanto al brief (Analisi Iniziale).');
     return false;
 }
 
 async function newProject() {
-    if (!confirm('Vuoi creare un nuovo progetto? Il progetto corrente verr� perso se non l\'hai scaricato.')) {
+    if (!confirm('Vuoi creare un nuovo progetto? Il progetto corrente verrà perso se non l\'hai scaricato.')) {
         return;
     }
 
@@ -867,7 +983,7 @@ async function newProject() {
 
     document.querySelectorAll('.tool-play[data-tool]').forEach(btn => {
         btn.classList.remove('loading', 'done', 'disabled');
-        btn.textContent = '?';
+        btn.textContent = '▶';
     });
     setToolsDisabled(false);
 
@@ -1332,6 +1448,57 @@ function animateFormattedWords(container, onDone) {
     tick();
 }
 
+function buildManagerPrompt(userMessage) {
+    const lastGapReport = managerState.lastGapAnalysis?.report_html || '';
+    const recentHistory = managerState.conversationHistory.slice(-6);
+
+    return `
+[ROLE] AI Manager Strategico
+[CONTEXT]
+Stato progetto attuale:
+${JSON.stringify(projectState, null, 2)}
+
+Configurazione tool attuale:
+${JSON.stringify(config, null, 2)}
+
+Messaggio utente: "${userMessage}"
+
+Ultimo report lacune disponibile:
+${lastGapReport || 'Nessun report recente disponibile'}
+
+Cronologia sintetica conversazione:
+${JSON.stringify(recentHistory, null, 2)}
+
+[TASK]
+Analizza il messaggio e determina quale delle seguenti azioni è più appropriata:
+1. COMPILAZIONE_PARAMETRI - L'utente ha dato un brief iniziale e devi compilare i parametri per i tool non ancora attivati
+2. MODIFICA_PARAMETRI - L'utente vuole modificare/migliorare un tool già eseguito o i suoi parametri
+3. SPIEGAZIONE_TOOL - L'utente chiede come funziona un tool o vuole suggerimenti
+4. CONVERSAZIONE - L'utente vuole discutere/rifinire l'idea senza azioni tecniche
+5. RIMOZIONE_SEZIONE - L'utente vuole rimuovere/resettare un tool completato
+6. RISOLVI_LACUNE - L'utente vuole applicare/modificare per risolvere le lacune emerse dall'ultimo report
+
+[OUTPUT]
+Rispondi SOLO in JSON con questa struttura:
+{
+  "azione": "TIPO_AZIONE",
+  "tool_coinvolti": ["nome_tool1", "nome_tool2"],
+  "parametri_suggeriti": {
+    "num_personas": 3,
+    "budget_totale": "5000"
+  },
+  "risposta_utente": "Messaggio chiaro e conciso da mostrare all'utente (max 150 parole)",
+  "richiedi_documentazione": ["nome_tool"]
+}
+
+REGOLE:
+- Sii pragmatico e diretto
+- Se l'utente è vago, proponi valori sensati basati sul contesto
+- Non chiedere conferme inutili, agisci in modo proattivo
+- Rispondi sempre in italiano
+`;
+}
+
 async function runManagerAI(userMessage) {
     if (!config.apiKey) {
         addManagerMessage('manager', "Configura la API Key nelle impostazioni per usare il Manager.");
@@ -1356,7 +1523,7 @@ async function runManagerAI(userMessage) {
         const reply = result?.risposta_utente || "Ok, ho aggiornato le indicazioni in base allo stato progetto.";
         addManagerMessage('manager', reply);
     } catch (err) {
-        addManagerMessage('manager', `? Errore Manager: ${err.message}`);
+        addManagerMessage('manager', `⚠️ Errore Manager: ${err.message}`);
     } finally {
         managerState.isThinking = false;
         if (managerSend) managerSend.disabled = false;
@@ -1492,7 +1659,7 @@ async function runTool(toolName) {
         setToolsDisabled(false);
         saveToLocalStorage();
         
-        addMessage('ai', `✅ ${toolName.toUpperCase()} completato!`, result);
+        addMessage('ai', `🔄 ${toolName.toUpperCase()} completato!`, result);
         runManagerAI(`Aggiornamento automatico dopo tool ${toolName}. Analizza lo stato e suggerisci eventuali miglioramenti.`);
         
     } catch (error) {
@@ -1506,28 +1673,48 @@ async function runTool(toolName) {
 // API CALL
 // ========================================
 
-async function callLLM(prompt, agentType = 'analitico') {
+async function callLLM(prompt, agentType = 'analitico', options = {}) {
     const temperature = agentType === 'creativo' ? 0.5 : 0.1;
+    const timeoutMs = Number.isFinite(options.timeoutMs) ? options.timeoutMs : 60000;
+    const onMeta = typeof options.onMeta === 'function' ? options.onMeta : null;
 
     const allowed = consumeQuota('llm', config.apiKey, LLM_DAILY_LIMIT);
     if (!allowed) {
         throw new Error(`Limite giornaliero LLM (${LLM_DAILY_LIMIT}) raggiunto per questa API Key.`);
     }
 
-    const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-        method: 'POST',
-        headers: {
-            'Authorization': `Bearer ${config.apiKey}`,
-            'Content-Type': 'application/json',
-            'HTTP-Referer': window.location.href,
-            'X-Title': 'InnuendoAI'
-        },
-        body: JSON.stringify({
-            model: config.model,
-            messages: [{ role: 'user', content: prompt }],
-            temperature
-        })
-    });
+    const controller = new AbortController();
+    if (options.signal) {
+        options.signal.addEventListener('abort', () => controller.abort(), { once: true });
+    }
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+
+    let response;
+    const startMs = performance.now();
+    try {
+        response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${config.apiKey}`,
+                'Content-Type': 'application/json',
+                'HTTP-Referer': window.location.href,
+                'X-Title': 'InnuendoAI'
+            },
+            body: JSON.stringify({
+                model: config.model,
+                messages: [{ role: 'user', content: prompt }],
+                temperature
+            }),
+            signal: controller.signal
+        });
+    } catch (err) {
+        if (err && err.name === 'AbortError') {
+            throw new Error(`Timeout richiesta API (${Math.round(timeoutMs / 1000)}s). Riprova o usa un modello più veloce.`);
+        }
+        throw new Error(`Errore di rete: ${err.message || 'Impossibile contattare il server.'}`);
+    } finally {
+        clearTimeout(timeoutId);
+    }
     
     if (!response.ok) {
         let errorText = '';
@@ -1549,7 +1736,21 @@ async function callLLM(prompt, agentType = 'analitico') {
     }
     
     const data = await response.json();
-    return data.choices[0].message.content;
+    if (onMeta) {
+        const queueMs = Number.parseInt(response.headers.get('x-openrouter-queue-ms') || '', 10);
+        const processingMs = Number.parseInt(response.headers.get('x-openrouter-processing-ms') || '', 10);
+        const totalMs = performance.now() - startMs;
+        onMeta({
+            queueMs: Number.isFinite(queueMs) ? queueMs : null,
+            processingMs: Number.isFinite(processingMs) ? processingMs : null,
+            totalMs
+        });
+    }
+    const content = data?.choices?.[0]?.message?.content;
+    if (!content) {
+        throw new Error('Risposta vuota dal modello. Riprova.');
+    }
+    return content;
 }
 
 function truncateText(text, maxLen = 280) {
@@ -1839,7 +2040,7 @@ Genera analisi PESTEL + SWOT.
   "swot": {
     "strengths": ["punto forza 1", "punto forza 2"],
     "weaknesses": ["debolezza 1", "debolezza 2"],
-    "opportunities": ["opportunit� 1", "opportunit� 2"],
+    "opportunities": ["opportunità 1", "opportunità 2"],
     "threats": ["minaccia 1", "minaccia 2"]
   }
 }
@@ -1946,7 +2147,7 @@ Considera CTR medio 0.5-2%. Posizionamento basso richiede milioni impression.
   "fasce": [
     {
       "posizionamento": "alto",
-      "prezzo_unitario": "Es: 5000�/anno",
+      "prezzo_unitario": "Es: 5000€/anno",
       "scenario_clienti": {
         "pessimistico": {"clienti": 10, "ricavo_annuo_eur": 50000},
         "realistico": {"clienti": 50, "ricavo_annuo_eur": 250000},
