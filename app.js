@@ -17,6 +17,7 @@ let projectState = {
 
 let config = {
     apiKey: '',
+    provider: 'openrouter',
     model: 'arcee-ai/trinity-large-preview:free',
     num_hypotheses: 3,
     project_scale: 'PMI',
@@ -183,10 +184,12 @@ document.addEventListener('DOMContentLoaded', async () => {
 function loadFromLocalStorage() {
     // Load config
     const savedApiKey = localStorage.getItem('innuendoai_api_key');
+    const savedProvider = localStorage.getItem('innuendoai_provider');
     const savedModel = localStorage.getItem('innuendoai_model');
     const savedTavilyKey = localStorage.getItem('innuendoai_tavily_key');
 
     if (savedApiKey) config.apiKey = savedApiKey;
+    if (savedProvider) config.provider = savedProvider;
     if (savedModel) config.model = savedModel;
     if (savedTavilyKey) config.tavilyApiKey = savedTavilyKey;
     
@@ -308,9 +311,11 @@ function updateToolCards() {
 
 function refreshConfigFromStorage() {
     const savedApiKey = localStorage.getItem('innuendoai_api_key');
+    const savedProvider = localStorage.getItem('innuendoai_provider');
     const savedModel = localStorage.getItem('innuendoai_model');
     const savedTavilyKey = localStorage.getItem('innuendoai_tavily_key');
     if (savedApiKey) config.apiKey = savedApiKey;
+    if (savedProvider) config.provider = savedProvider;
     if (savedModel) config.model = savedModel;
     if (savedTavilyKey) config.tavilyApiKey = savedTavilyKey;
 }
@@ -349,9 +354,11 @@ function showSettings() {
     const modal = document.getElementById('settings-modal');
     if (!modal) return;
     const apiKeyInput = document.getElementById('api-key');
+    const providerInput = document.getElementById('provider-select');
     const modelInput = document.getElementById('model-input');
     const tavilyInput = document.getElementById('tavily-key');
     if (apiKeyInput) apiKeyInput.value = config.apiKey || '';
+    if (providerInput) providerInput.value = config.provider || 'openrouter';
     if (modelInput) modelInput.value = config.model || '';
     if (tavilyInput) tavilyInput.value = config.tavilyApiKey || '';
     modal.classList.add('active');
@@ -367,6 +374,7 @@ function closeSettings() {
 
 function saveSettings() {
     const apiKey = document.getElementById('api-key')?.value || '';
+    const provider = document.getElementById('provider-select')?.value || 'openrouter';
     const model = document.getElementById('model-input')?.value || '';
     const tavilyKey = document.getElementById('tavily-key')?.value || '';
     
@@ -376,10 +384,12 @@ function saveSettings() {
     }
     
     config.apiKey = apiKey;
+    config.provider = provider;
     config.model = model;
     config.tavilyApiKey = tavilyKey;
     
     localStorage.setItem('innuendoai_api_key', apiKey);
+    localStorage.setItem('innuendoai_provider', provider);
     localStorage.setItem('innuendoai_model', model);
     localStorage.setItem('innuendoai_tavily_key', tavilyKey);
     
@@ -1365,7 +1375,8 @@ function estimateWordDelay(wordCount) {
 
 function renderMessageWithTyping(container, content, data, useTyping) {
     const html = formatMessageContent(content, data);
-    if (!useTyping) {
+    const hasStructuredData = !!(data && typeof data === 'object');
+    if (!useTyping || hasStructuredData) {
         container.innerHTML = html;
         return;
     }
@@ -1405,7 +1416,10 @@ function animateFormattedWords(container, onDone) {
         });
     }
 
-    if (textNodes.length === 0) return;
+    if (textNodes.length === 0) {
+        if (onDone) onDone();
+        return;
+    }
 
     const wordQueues = textNodes.map((entry) => {
         const words = entry.fullText.trim().split(/\s+/);
@@ -1448,9 +1462,54 @@ function animateFormattedWords(container, onDone) {
     tick();
 }
 
-function buildManagerPrompt(userMessage) {
+function buildManagerPrompt(userMessage, options = {}) {
     const lastGapReport = managerState.lastGapAnalysis?.report_html || '';
     const recentHistory = managerState.conversationHistory.slice(-6);
+    const mode = options.mode || 'chat';
+
+    if (mode === 'auto_tool_review') {
+        return `
+[ROLE] AI Manager Strategico
+[CONTEXT]
+Tool appena completato: ${options.toolName || 'tool'}
+
+Stato progetto attuale:
+${JSON.stringify(projectState, null, 2)}
+
+Configurazione tool attuale:
+${JSON.stringify(config, null, 2)}
+
+Ultimo report lacune disponibile:
+${lastGapReport || 'Nessun report recente disponibile'}
+
+Cronologia sintetica conversazione:
+${JSON.stringify(recentHistory, null, 2)}
+
+[TASK]
+Analizza lo stato del progetto subito dopo il completamento del tool indicato.
+Fai solo una valutazione diagnostica del lavoro svolto e delle eventuali lacune residue.
+NON suggerire cambi ai parametri dei tool.
+NON proporre di aggiornare budget, numero di personas, varianti o altri settaggi.
+Concentrati su:
+1. cosa ha prodotto il tool appena completato
+2. coerenza con il resto del progetto
+3. dati mancanti, rischi, incoerenze o prossimi approfondimenti utili
+
+[OUTPUT]
+Rispondi SOLO in JSON con questa struttura:
+{
+  "azione": "ANALISI_STATO",
+  "tool_coinvolti": ["nome_tool1"],
+  "analisi_stato": "Analisi sintetica ma concreta dello stato attuale (max 180 parole)",
+  "risposta_utente": "Messaggio chiaro da mostrare all'utente con sola analisi, senza suggerire modifiche ai parametri (max 150 parole)"
+}
+
+REGOLE:
+- Non proporre modifiche ai parametri
+- Non dire che hai aggiornato tool o impostazioni
+- Rispondi sempre in italiano
+`;
+    }
 
     return `
 [ROLE] AI Manager Strategico
@@ -1495,11 +1554,14 @@ REGOLE:
 - Sii pragmatico e diretto
 - Se l'utente è vago, proponi valori sensati basati sul contesto
 - Non chiedere conferme inutili, agisci in modo proattivo
+- I parametri_suggeriti sono solo suggerimenti: NON modificare mai i parametri correnti se l'utente non lo chiede in modo esplicito
+- Non dire mai che un tool "e stato aggiornato" o che i parametri "sono stati applicati" a meno che l'utente non abbia richiesto esplicitamente la modifica
 - Rispondi sempre in italiano
 `;
 }
 
-async function runManagerAI(userMessage) {
+async function runManagerAI(userMessage, options = {}) {
+    refreshConfigFromStorage();
     if (!config.apiKey) {
         addManagerMessage('manager', "Configura la API Key nelle impostazioni per usare il Manager.");
         return;
@@ -1508,19 +1570,21 @@ async function runManagerAI(userMessage) {
     managerState.isThinking = true;
     if (managerSend) managerSend.disabled = true;
     try {
-        const prompt = buildManagerPrompt(userMessage);
+        const prompt = buildManagerPrompt(userMessage, options);
         const response = await callLLM(prompt, 'analitico');
         const result = parseJsonResponse(response);
+        if (options.mode === 'auto_tool_review') {
+            managerState.lastGapAnalysis = {
+                tool: options.toolName || null,
+                report_html: result?.analisi_stato || result?.risposta_utente || ''
+            };
+        }
         managerState.conversationHistory.push({
             user: userMessage,
             response: result?.risposta_utente || ''
         });
 
-        if (result?.parametri_suggeriti) {
-            applyManagerParams(result.parametri_suggeriti);
-        }
-
-        const reply = result?.risposta_utente || "Ok, ho aggiornato le indicazioni in base allo stato progetto.";
+        const reply = result?.risposta_utente || "Ho analizzato lo stato progetto e posso suggerire i prossimi passi senza modificare i parametri correnti.";
         addManagerMessage('manager', reply);
     } catch (err) {
         addManagerMessage('manager', `⚠️ Errore Manager: ${err.message}`);
@@ -1660,7 +1724,10 @@ async function runTool(toolName) {
         saveToLocalStorage();
         
         addMessage('ai', `🔄 ${toolName.toUpperCase()} completato!`, result);
-        runManagerAI(`Aggiornamento automatico dopo tool ${toolName}. Analizza lo stato e suggerisci eventuali miglioramenti.`);
+        runManagerAI(`Analisi automatica dopo tool ${toolName}`, {
+            mode: 'auto_tool_review',
+            toolName
+        });
         
     } catch (error) {
         setToolButtonState(toolName, completedTools.has(toolName) ? 'done' : 'idle');
@@ -1677,6 +1744,7 @@ async function callLLM(prompt, agentType = 'analitico', options = {}) {
     const temperature = agentType === 'creativo' ? 0.5 : 0.1;
     const timeoutMs = Number.isFinite(options.timeoutMs) ? options.timeoutMs : 60000;
     const onMeta = typeof options.onMeta === 'function' ? options.onMeta : null;
+    const provider = (config.provider || 'openrouter').toLowerCase();
 
     const allowed = consumeQuota('llm', config.apiKey, LLM_DAILY_LIMIT);
     if (!allowed) {
@@ -1691,20 +1759,12 @@ async function callLLM(prompt, agentType = 'analitico', options = {}) {
 
     let response;
     const startMs = performance.now();
+    const requestConfig = getProviderRequestConfig(provider);
     try {
-        response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+        response = await fetch(requestConfig.url, {
             method: 'POST',
-            headers: {
-                'Authorization': `Bearer ${config.apiKey}`,
-                'Content-Type': 'application/json',
-                'HTTP-Referer': window.location.href,
-                'X-Title': 'InnuendoAI'
-            },
-            body: JSON.stringify({
-                model: config.model,
-                messages: [{ role: 'user', content: prompt }],
-                temperature
-            }),
+            headers: requestConfig.headers,
+            body: JSON.stringify(requestConfig.body(prompt, temperature)),
             signal: controller.signal
         });
     } catch (err) {
@@ -1730,7 +1790,7 @@ async function callLLM(prompt, agentType = 'analitico', options = {}) {
             throw new Error('Accesso negato. Verifica permessi e API Key.');
         }
         if (response.status === 429) {
-            throw new Error('Troppe richieste. Riprova tra poco.');
+            throw new Error(`Troppe richieste dal provider ${provider}. Riprova tra poco o usa un modello diverso.`);
         }
         throw new Error(`API Error (${response.status}): ${errorText}`);
     }
@@ -1746,11 +1806,91 @@ async function callLLM(prompt, agentType = 'analitico', options = {}) {
             totalMs
         });
     }
-    const content = data?.choices?.[0]?.message?.content;
+    const content = provider === 'anthropic'
+        ? data?.content?.map((item) => item?.text || '').join('').trim()
+        : data?.choices?.[0]?.message?.content;
     if (!content) {
         throw new Error('Risposta vuota dal modello. Riprova.');
     }
     return content;
+}
+
+function getProviderRequestConfig(provider) {
+    const baseHeaders = {
+        'Authorization': `Bearer ${config.apiKey}`,
+        'Content-Type': 'application/json'
+    };
+
+    if (provider === 'openrouter') {
+        return {
+            url: 'https://openrouter.ai/api/v1/chat/completions',
+            headers: {
+                ...baseHeaders,
+                'HTTP-Referer': window.location.href,
+                'X-Title': 'InnuendoAI'
+            },
+            body: (prompt, temperature) => ({
+                model: config.model,
+                messages: [{ role: 'user', content: prompt }],
+                temperature
+            })
+        };
+    }
+
+    if (provider === 'openai') {
+        return {
+            url: 'https://api.openai.com/v1/chat/completions',
+            headers: baseHeaders,
+            body: (prompt, temperature) => ({
+                model: config.model,
+                messages: [{ role: 'user', content: prompt }],
+                temperature
+            })
+        };
+    }
+
+    if (provider === 'groq') {
+        return {
+            url: 'https://api.groq.com/openai/v1/chat/completions',
+            headers: baseHeaders,
+            body: (prompt, temperature) => ({
+                model: config.model,
+                messages: [{ role: 'user', content: prompt }],
+                temperature
+            })
+        };
+    }
+
+    if (provider === 'together') {
+        return {
+            url: 'https://api.together.xyz/v1/chat/completions',
+            headers: baseHeaders,
+            body: (prompt, temperature) => ({
+                model: config.model,
+                messages: [{ role: 'user', content: prompt }],
+                temperature
+            })
+        };
+    }
+
+    if (provider === 'anthropic') {
+        return {
+            url: 'https://api.anthropic.com/v1/messages',
+            headers: {
+                'x-api-key': config.apiKey,
+                'anthropic-version': '2023-06-01',
+                'Content-Type': 'application/json'
+            },
+            body: (prompt, temperature) => ({
+                model: config.model,
+                max_tokens: 4096,
+                temperature,
+                messages: [{ role: 'user', content: prompt }]
+            })
+        };
+    }
+
+    throw new Error(`Provider non supportato: ${provider}.`);
 }
 
 function truncateText(text, maxLen = 280) {
@@ -1808,6 +1948,57 @@ async function getTavilyData(query, searchDepth = 'basic') {
         addMessage('system', `Debug: Tavily completato (${count} risultati).`);
     }
     return { cancelled: false, data };
+}
+
+function resolveTavilyApiKey() {
+    const inlineKey = document.getElementById('tavily-key')?.value || '';
+    const resolvedKey = (config.tavilyApiKey || inlineKey).trim();
+    if (resolvedKey && !config.tavilyApiKey) {
+        config.tavilyApiKey = resolvedKey;
+    }
+    return resolvedKey;
+}
+
+async function searchTavilyQueries(queries, searchDepth = 'advanced') {
+    const apiKey = resolveTavilyApiKey();
+    if (!apiKey) return [];
+
+    const cleanQueries = Array.from(new Set((queries || []).map((q) => String(q || '').trim()).filter(Boolean)));
+    const results = [];
+
+    for (const query of cleanQueries) {
+        const data = await callTavilySearch(query, searchDepth, apiKey);
+        results.push({
+            query,
+            data
+        });
+    }
+
+    return results;
+}
+
+function flattenTavilyResults(searchEntries = []) {
+    const urls = new Set();
+    const flattened = [];
+
+    searchEntries.forEach((entry) => {
+        const query = entry?.query || '';
+        const items = Array.isArray(entry?.data?.results) ? entry.data.results : [];
+        items.forEach((item) => {
+            const url = String(item?.url || '').trim();
+            const key = url || `${query}::${item?.title || ''}::${item?.content || item?.snippet || item?.text || ''}`;
+            if (urls.has(key)) return;
+            urls.add(key);
+            flattened.push({
+                query,
+                title: String(item?.title || '').trim(),
+                url,
+                content: String(item?.content || item?.snippet || item?.text || '').trim()
+            });
+        });
+    });
+
+    return flattened;
 }
 
 function formatTavilySourcesForPrompt(tavilyData, maxResults = TAVILY_MAX_RESULTS) {
@@ -1960,17 +2151,474 @@ Rispondi SOLO JSON in italiano.
     return parseJsonResponse(response);
 }
 
+function normalizeCompetitorName(name) {
+    return String(name || '')
+        .toLowerCase()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .replace(/\b(srl|spa|s\.p\.a\.|inc|llc|ltd|gmbh|sas|sa|bv)\b/g, '')
+        .replace(/[^\p{L}\p{N}]+/gu, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+}
+
+function getNameVariants(name) {
+    const normalized = normalizeCompetitorName(name);
+    if (!normalized) return [];
+
+    const compact = normalized.replace(/\s+/g, '');
+    const tokens = normalized.split(' ').filter(Boolean);
+    const variants = new Set([normalized, compact]);
+
+    if (tokens.length > 1) {
+        variants.add(tokens[0]);
+        variants.add(tokens[tokens.length - 1]);
+    }
+
+    return Array.from(variants).filter(Boolean);
+}
+
+function mentionsBriefBrand(candidate, briefVariants) {
+    const normalized = normalizeCompetitorName(candidate);
+    if (!normalized) return false;
+
+    return Array.from(briefVariants).some((variant) => {
+        if (!variant || variant.length < 3) return false;
+        return normalized === variant || normalized.includes(variant) || variant.includes(normalized);
+    });
+}
+
+function normalizeCompetitorsResult(result, expectedCount) {
+    const briefVariants = new Set(getNameVariants(projectState.project?.brief_originale || ''));
+    const source = Array.isArray(result?.competitors_reali) ? result.competitors_reali : [];
+    const seen = new Set();
+    const competitors = [];
+
+    source.forEach((item) => {
+        if (!item || typeof item !== 'object') return;
+        const nome = String(item.nome_competitor || '').trim();
+        const descrizione = String(item.descrizione_breve || '').trim();
+        const sito = String(item.sito_web || item.fonte_url || '').trim();
+        const normalizedName = normalizeCompetitorName(nome);
+
+        if (!nome || !descrizione || !normalizedName || seen.has(normalizedName)) return;
+        if (mentionsBriefBrand(normalizedName, briefVariants)) return;
+
+        seen.add(normalizedName);
+        const competitor = {
+            nome_competitor: nome,
+            descrizione_breve: descrizione
+        };
+        if (sito) competitor.sito_web = sito;
+        competitors.push(competitor);
+    });
+
+    return {
+        ...result,
+        competitors_reali: competitors.slice(0, expectedCount)
+    };
+}
+
+function hasEnoughUniqueCompetitors(result, expectedCount) {
+    return Array.isArray(result?.competitors_reali) && result.competitors_reali.length >= expectedCount;
+}
+
+function buildCompetitorStopwords() {
+    return new Set([
+        'miele', 'azienda', 'azienda reale', 'brand', 'marchio', 'prodotti', 'prodotto',
+        'competitor', 'concorrente', 'concorrenti', 'italia', 'italiano', 'italiana',
+        'bio', 'organic', 'shop', 'store', 'official', 'ufficiale', 'home', 'pagina',
+        'news', 'blog', 'mercato', 'panorama', 'settore', 'alimentare', 'food',
+        'gruppo', 'societa', 'società', 'consorzio', 'cooperativa',
+        'cookie', 'privacy', 'login', 'contatti', 'chi siamo', 'about', 'support',
+        'top', 'best', 'company', 'companies', 'extract', 'honey', 'ranking', 'rankings'
+    ]);
+}
+
+function isLikelyCompetitorCandidate(candidate, briefVariants, stopwords) {
+    const normalized = normalizeCompetitorName(candidate);
+    if (!normalized) return false;
+    if (normalized.length < 3) return false;
+    if (stopwords.has(normalized)) return false;
+    if (mentionsBriefBrand(normalized, briefVariants)) return false;
+    if (/^\d+$/.test(normalized)) return false;
+    const tokens = normalized.split(' ').filter(Boolean);
+    if (tokens.length > 0 && tokens.every((token) => stopwords.has(token))) return false;
+    return true;
+}
+
+function toTitleCaseBrand(value) {
+    return String(value || '')
+        .split(/\s+/)
+        .filter(Boolean)
+        .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+        .join(' ');
+}
+
+function extractHostnameLabel(url) {
+    try {
+        const hostname = new URL(url).hostname.toLowerCase().replace(/^www\./, '');
+        const parts = hostname.split('.').filter(Boolean);
+        if (parts.length === 0) return '';
+        const core = parts.length >= 2 ? parts[parts.length - 2] : parts[0];
+        return core.replace(/[-_]+/g, ' ').trim();
+    } catch (err) {
+        return '';
+    }
+}
+
+function extractCompetitorCandidatesFromTitle(text, briefVariants, stopwords) {
+    const content = String(text || '');
+    if (!content) return [];
+
+    const matches = content.match(/\b[A-Z][A-Za-z0-9&'’-]{2,}(?:\s+[A-Z][A-Za-z0-9&'’-]{2,}){0,2}\b/g) || [];
+    const seen = new Set();
+    const candidates = [];
+
+    matches.forEach((match) => {
+        const cleaned = match.trim().replace(/[|:;,]+$/g, '');
+        const normalized = normalizeCompetitorName(cleaned);
+        if (!isLikelyCompetitorCandidate(cleaned, briefVariants, stopwords)) return;
+        if (seen.has(normalized)) return;
+        seen.add(normalized);
+        candidates.push(cleaned);
+    });
+
+    return candidates;
+}
+
+function extractCompetitorCandidatesFromSnippet(text, briefVariants, stopwords) {
+    const content = String(text || '');
+    if (!content) return [];
+
+    const matches = content.match(/\b[A-Z][A-Za-z0-9&'’-]{2,}(?:\s+[A-Z][A-Za-z0-9&'’-]{2,}){0,2}\b/g) || [];
+    const seen = new Set();
+    const candidates = [];
+
+    matches.forEach((match) => {
+        const cleaned = match.trim().replace(/[|:;,]+$/g, '');
+        const normalized = normalizeCompetitorName(cleaned);
+        if (!isLikelyCompetitorCandidate(cleaned, briefVariants, stopwords)) return;
+        if (seen.has(normalized)) return;
+        seen.add(normalized);
+        candidates.push(cleaned);
+    });
+
+    return candidates;
+}
+
+function extractVerifiedCompetitorFromTavilyItem(item, brief, briefVariants, stopwords) {
+    const title = String(item?.title || '');
+    const snippet = String(item?.content || item?.snippet || item?.text || '');
+    const url = String(item?.url || '').trim();
+    const titleCandidates = extractCompetitorCandidatesFromTitle(title, briefVariants, stopwords);
+    const snippetCandidates = extractCompetitorCandidatesFromSnippet(snippet, briefVariants, stopwords);
+    const domainLabel = extractHostnameLabel(url);
+    const snippetNormalized = normalizeCompetitorName(snippet);
+    const verifiedTitleCandidate = titleCandidates.find((candidate) => {
+        const normalized = normalizeCompetitorName(candidate);
+        return normalized && (
+            normalizeCompetitorName(title).includes(normalized) ||
+            snippetNormalized.includes(normalized)
+        );
+    });
+    const verifiedSnippetCandidate = snippetCandidates.find((candidate) => {
+        const normalized = normalizeCompetitorName(candidate);
+        return normalized && snippetNormalized.includes(normalized);
+    });
+
+    const normalizedDomain = normalizeCompetitorName(domainLabel);
+    const verifiedDomainCandidate = normalizedDomain && snippetNormalized.includes(normalizedDomain) &&
+        isLikelyCompetitorCandidate(domainLabel, briefVariants, stopwords)
+        ? toTitleCaseBrand(domainLabel)
+        : '';
+
+    const verifiedName = verifiedTitleCandidate || verifiedSnippetCandidate || verifiedDomainCandidate;
+    if (!verifiedName) return null;
+
+    const normalizedVerifiedName = normalizeCompetitorName(verifiedName);
+    if (!normalizedVerifiedName || mentionsBriefBrand(normalizedVerifiedName, briefVariants)) {
+        return null;
+    }
+
+    return {
+        nome_competitor: verifiedName,
+        descrizione_breve: truncateText(snippet || `Competitor citato nelle fonti web per ${brief}.`, 140),
+        sito_web: url
+    };
+}
+
+function extractCompetitorsFromTavilyData(tavilyData, brief, expectedCount) {
+    if (!tavilyData || !Array.isArray(tavilyData.results)) return [];
+
+    const stopwords = buildCompetitorStopwords();
+    const briefVariants = new Set(getNameVariants(brief));
+    const fallback = [];
+    const seen = new Set();
+
+    tavilyData.results.forEach((item) => {
+        const competitor = extractVerifiedCompetitorFromTavilyItem(item, brief, briefVariants, stopwords);
+        const normalized = normalizeCompetitorName(competitor?.nome_competitor || '');
+        if (!competitor || !normalized || seen.has(normalized)) return;
+
+        seen.add(normalized);
+        fallback.push(competitor);
+    });
+
+    return fallback.slice(0, expectedCount);
+}
+
+function buildCompetitorResearchQueries(brief) {
+    return [
+        `${brief} brand target posizionamento distribuzione`,
+        `${brief} prodotti mercato canali vendita certificazioni`,
+        `${brief} concorrenti alternativi settore brand`,
+        `${brief} produttore fornitore industriale ingrosso`,
+        `${brief} gdo retail ecommerce distribuzione`,
+        `"brand settore" target simile distribuzione italia`,
+        `"produttore settore" italia fornitore ingrosso`,
+        `"azienda settore" posizionamento target certificazioni`
+    ];
+}
+
+function formatFlattenedSourcesForPrompt(results, maxResults = 10) {
+    if (!Array.isArray(results) || results.length === 0) return '';
+    return results.slice(0, maxResults).map((item, idx) => {
+        const title = item.title || 'Titolo non disponibile';
+        const url = item.url || '';
+        const snippet = truncateText(item.content || '', 240);
+        const query = item.query || '';
+        return `${idx + 1}. [Query: ${query}] ${title} | ${url} | ${snippet}`.trim();
+    }).join('\n');
+}
+
+function buildOwnershipKeywords() {
+    return [
+        'owner', 'owned', 'owns', 'parent company', 'holding', 'same group',
+        'brand di', 'marchio di', 'gruppo', 'controlla', 'controllata',
+        'possiede', 'proprieta', 'di proprieta', 'societa madre', 'subsidiary',
+        'cooperativa', 'consorzio'
+    ];
+}
+
+function textMentionsOwnershipRelation(text, briefVariants) {
+    const normalized = normalizeCompetitorName(text);
+    if (!normalized) return false;
+    const mentionsBrief = mentionsBriefBrand(normalized, briefVariants);
+    if (!mentionsBrief) return false;
+    return buildOwnershipKeywords().some((keyword) => normalized.includes(normalizeCompetitorName(keyword)));
+}
+
+function candidateMatchesSource(candidateName, result) {
+    const normalizedCandidate = normalizeCompetitorName(candidateName);
+    if (!normalizedCandidate) return false;
+    const title = normalizeCompetitorName(result?.title || '');
+    const snippet = normalizeCompetitorName(result?.content || '');
+    const domain = normalizeCompetitorName(extractHostnameLabel(result?.url || ''));
+
+    return title.includes(normalizedCandidate) ||
+        snippet.includes(normalizedCandidate) ||
+        domain.includes(normalizedCandidate) ||
+        normalizedCandidate.includes(domain);
+}
+
+function chooseBestSourceForCandidate(candidateName, results, briefVariants) {
+    let best = null;
+
+    results.forEach((result) => {
+        if (!candidateMatchesSource(candidateName, result)) return;
+
+        const combined = `${result.title || ''} ${result.content || ''} ${result.url || ''}`;
+        if (textMentionsOwnershipRelation(combined, briefVariants)) return;
+
+        let score = 0;
+        const domain = normalizeCompetitorName(extractHostnameLabel(result.url || ''));
+        const candidate = normalizeCompetitorName(candidateName);
+        const title = normalizeCompetitorName(result.title || '');
+        const snippet = normalizeCompetitorName(result.content || '');
+
+        if (domain && (domain === candidate || candidate.includes(domain))) score += 4;
+        if (title.includes(candidate)) score += 3;
+        if (snippet.includes(candidate)) score += 2;
+        if ((result.query || '').includes('brand') || (result.query || '').includes('produttore')) score += 1;
+
+        if (!best || score > best.score) {
+            best = { score, result };
+        }
+    });
+
+    return best ? best.result : null;
+}
+
+async function generateCompetitorHypotheses(brief, initialAnalysis, brandSources, marketSources, expectedCount) {
+    const prompt = `
+[ROLE] Competitive Positioning Strategist
+
+[CONTEXT - BRAND DA ANALIZZARE]
+Brief: ${brief}
+Analisi iniziale:
+${initialAnalysis || 'Nessuna analisi iniziale disponibile.'}
+
+Fonti sul brand:
+${brandSources || 'Nessuna fonte disponibile.'}
+
+Fonti di mercato:
+${marketSources || 'Nessuna fonte disponibile.'}
+
+[TASK]
+Individua competitor del brand in base a:
+- posizionamento simile
+- target simile
+- categoria prodotto simile
+- canale distributivo simile
+
+Le ricerche devono ragionare come farebbe un analista umano.
+Deduce dal brief quali keyword usare per trovare:
+- categoria merceologica
+- target
+- canale distributivo
+- posizionamento
+- certificazioni o attributi distintivi
+- presenza industriale, retail, ingrosso o fornitura se rilevanti
+
+[REGOLE]
+- ESCLUDI il brand del brief.
+- ESCLUDI proprietario, holding, cooperativa madre, controllante o brand dello stesso gruppo.
+- Privilegia aziende/brand che vendono realmente prodotti comparabili.
+- Restituisci piu candidati del necessario per consentire la verifica successiva.
+
+[OUTPUT JSON]
+{
+  "analisi_segmento": "Sintesi del posizionamento competitivo",
+  "candidati": [
+    {
+      "nome_competitor": "Nome brand o azienda",
+      "motivo": "Perche compete con il brand",
+      "query_verifica": "query utile da usare su Tavily per verificare il competitor"
+    }
+  ]
+}
+
+Rispondi SOLO JSON in italiano.
+`;
+
+    const raw = await callLLM(prompt, 'analitico');
+    const parsed = parseJsonResponse(raw);
+    const source = Array.isArray(parsed?.candidati) ? parsed.candidati : [];
+    const unique = [];
+    const seen = new Set();
+    const briefVariants = new Set(getNameVariants(brief));
+
+    source.forEach((item) => {
+        const name = String(item?.nome_competitor || '').trim();
+        const normalized = normalizeCompetitorName(name);
+        if (!name || !normalized || seen.has(normalized)) return;
+        if (mentionsBriefBrand(normalized, briefVariants)) return;
+        seen.add(normalized);
+        unique.push({
+            nome_competitor: name,
+            motivo: String(item?.motivo || '').trim(),
+            query_verifica: String(item?.query_verifica || `${name} brand prodotti target distribuzione italia`).trim()
+        });
+    });
+
+    return {
+        analisi_segmento: String(parsed?.analisi_segmento || '').trim(),
+        candidati: unique.slice(0, Math.max(expectedCount + 3, 6))
+    };
+}
+
+async function verifyCompetitorCandidates(candidates, brief, marketResults, expectedCount) {
+    const apiKey = resolveTavilyApiKey();
+    const briefVariants = new Set(getNameVariants(brief));
+    const verified = [];
+    const seen = new Set();
+
+    for (const candidate of candidates) {
+        if (verified.length >= expectedCount) break;
+
+        const name = String(candidate?.nome_competitor || '').trim();
+        const normalized = normalizeCompetitorName(name);
+        if (!name || !normalized || seen.has(normalized)) continue;
+        if (mentionsBriefBrand(normalized, briefVariants)) continue;
+
+        const verifyQuery = String(candidate?.query_verifica || `${name} brand prodotti target distribuzione italia`).trim();
+        const relationQuery = `${name} ${brief} gruppo brand`;
+        const verificationEntries = apiKey
+            ? await searchTavilyQueries([verifyQuery, relationQuery], 'basic')
+            : [];
+        const relationResults = flattenTavilyResults(verificationEntries).filter((item) => String(item?.query || '') === relationQuery);
+        const ownershipConflict = relationResults.some((item) => {
+            const combined = `${item.title || ''} ${item.content || ''} ${item.url || ''}`;
+            return textMentionsOwnershipRelation(combined, briefVariants);
+        });
+        if (ownershipConflict) continue;
+
+        const combinedResults = [
+            ...marketResults,
+            ...flattenTavilyResults(verificationEntries)
+        ];
+        const bestSource = chooseBestSourceForCandidate(name, combinedResults, briefVariants);
+        if (!bestSource) continue;
+
+        seen.add(normalized);
+        verified.push({
+            nome_competitor: name,
+            descrizione_breve: truncateText(candidate?.motivo || bestSource.content || `Competitor verificato per ${brief}.`, 180),
+            sito_web: bestSource.url || ''
+        });
+    }
+
+    return verified;
+}
+
 async function runCompetitors() {
     const brief = projectState.project.brief_originale;
     const numComp = config.num_competitor;
     const initialAnalysis = getInitialAnalysisContext();
-    const tavilyResult = await getTavilyData(`Competitor aziende per: ${brief}`, 'advanced');
-    if (tavilyResult.cancelled) {
+    const brandResult = await getTavilyData(`${brief} brand prodotti target distribuzione posizionamento`, 'advanced');
+    if (brandResult.cancelled) {
         throw new Error('Operazione annullata dall\'utente.');
     }
-    const tavilySources = formatTavilySourcesForPrompt(tavilyResult.data, config.num_competitor);
+    const marketSearches = await searchTavilyQueries(buildCompetitorResearchQueries(brief), 'advanced');
+    const brandSources = formatTavilySourcesForPrompt(brandResult.data, TAVILY_MAX_RESULTS);
+    const marketResults = flattenTavilyResults(marketSearches);
+    const marketSources = formatFlattenedSourcesForPrompt(marketResults, 12);
+
+    const competitorHypotheses = await generateCompetitorHypotheses(
+        brief,
+        initialAnalysis,
+        brandSources,
+        marketSources,
+        numComp
+    );
+
+    const verifiedList = await verifyCompetitorCandidates(
+        competitorHypotheses.candidati || [],
+        brief,
+        marketResults,
+        numComp
+    );
+
+    const finalCompetitorResult = normalizeCompetitorsResult({
+        analisi_segmento: competitorHypotheses.analisi_segmento || `Analisi competitor per ${brief}.`,
+        competitors_reali: verifiedList
+    }, numComp);
+
+    if (hasEnoughUniqueCompetitors(finalCompetitorResult, numComp)) {
+        return finalCompetitorResult;
+    }
+
+    if (Array.isArray(finalCompetitorResult?.competitors_reali) && finalCompetitorResult.competitors_reali.length > 0) {
+        return {
+            ...finalCompetitorResult,
+            analisi_segmento: `${finalCompetitorResult.analisi_segmento || `Analisi competitor per ${brief}.`} Sono stati verificati ${finalCompetitorResult.competitors_reali.length} competitor con target o posizionamento simile.`
+        };
+    }
+
+    throw new Error(`Impossibile verificare competitor affidabili per ${brief}. Prova a rendere il brief piu specifico sul prodotto o sul canale di vendita.`);
     
-    const prompt = `
+    const basePrompt = `
 [ROLE] Competitive Analysis Expert
 
 [CONTEXT]
@@ -1984,22 +2632,76 @@ ${tavilySources || 'Nessuna fonte disponibile.'}
 [TASK]
 Trova ${numComp} competitor REALI attualmente operativi.
 
+[REGOLE OBBLIGATORIE]
+- I ${numComp} competitor devono essere TUTTI diversi tra loro.
+- NON ripetere lo stesso brand con varianti del nome societario.
+- Se una fonte cita sempre la stessa azienda, cerca comunque altri competitor reali nello stesso segmento.
+- Restituisci esattamente ${numComp} aziende uniche.
+- Includi il sito web ufficiale o la URL della fonte che conferma l'esistenza del competitor.
+
 [OUTPUT JSON]
 {
   "analisi_segmento": "Panorama competitivo",
   "competitors_reali": [
     {
       "nome_competitor": "Nome azienda reale",
-      "descrizione_breve": "Cosa fanno (1 frase)"
+      "descrizione_breve": "Cosa fanno (1 frase)",
+      "sito_web": "https://..."
     }
   ]
 }
 
 Rispondi SOLO JSON in italiano.
 `;
-    
-    const response = await callLLM(prompt, 'analitico');
-    return parseJsonResponse(response);
+
+    let bestNormalized = null;
+    let feedbackPrompt = '';
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+        const response = await callLLM(`${basePrompt}${feedbackPrompt}`, 'analitico');
+        const parsed = parseJsonResponse(response);
+        const normalized = normalizeCompetitorsResult(parsed, numComp);
+        bestNormalized = normalized;
+
+        if (hasEnoughUniqueCompetitors(normalized, numComp)) {
+            return normalized;
+        }
+
+        const currentNames = Array.isArray(parsed?.competitors_reali)
+            ? parsed.competitors_reali.map((item) => item?.nome_competitor).filter(Boolean).join(', ')
+            : 'nessun nome rilevato';
+
+        feedbackPrompt = `
+
+[CORREZIONE]
+La risposta precedente non era valida perché conteneva competitor duplicati, troppo simili o in numero insufficiente.
+Nomi rilevati: ${currentNames}
+Rigenera da zero e restituisci solo ${numComp} competitor unici e distinti.
+`;
+    }
+
+    const tavilyFallback = extractCompetitorsFromTavilyData(tavilyResult.data, brief, numComp);
+    if (tavilyFallback.length > 0) {
+        const merged = normalizeCompetitorsResult({
+            analisi_segmento: bestNormalized?.analisi_segmento || `Panorama competitivo ricostruito da fonti web per ${brief}.`,
+            competitors_reali: [
+                ...(bestNormalized?.competitors_reali || []),
+                ...tavilyFallback
+            ]
+        }, numComp);
+
+        if (hasEnoughUniqueCompetitors(merged, numComp)) {
+            return merged;
+        }
+
+        if (Array.isArray(merged?.competitors_reali) && merged.competitors_reali.length > 0) {
+            return {
+                ...merged,
+                analisi_segmento: `${merged.analisi_segmento || `Panorama competitivo per ${brief}.`} Sono stati trovati ${merged.competitors_reali.length} competitor verificati su ${numComp} richiesti.`
+            };
+        }
+    }
+
+    throw new Error(`Impossibile ottenere ${numComp} competitor unici dalle fonti disponibili. Prova a rilanciare il tool oppure aggiungi nel brief la categoria precisa del prodotto.`);
 }
 
 async function runSWOT() {
