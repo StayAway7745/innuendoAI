@@ -1,1 +1,1 @@
-# innuendoAI
+﻿https://stayaway7745.github.io/innuendoAI/

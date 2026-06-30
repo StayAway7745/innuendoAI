@@ -40,6 +40,7 @@ const PROJECT_COUNT_KEY = 'innuendoai_project_count';
 const LLM_DAILY_LIMIT = 50;
 const TAVILY_DAILY_LIMIT = 20;
 const TAVILY_MAX_RESULTS = 5;
+const COMPETITOR_TAVILY_QUERY_LIMIT = 3;
 const INITIAL_ANALYSIS_TIMEOUT_MS = 40000;
 const INITIAL_ANALYSIS_SOFT_TIMEOUT_MS = 15000;
 const ALLOW_REDO_INITIAL_ANALYSIS = true;
@@ -89,6 +90,25 @@ let analysisInFlight = false;
 let analysisAbortController = null;
 let analysisSoftTimeoutId = null;
 let analysisElapsedIntervalId = null;
+let tavilyQuotaState = {
+    dayKey: '',
+    keyHash: '',
+    notified: false,
+    exhausted: false
+};
+
+function syncTavilyQuotaState(apiKey) {
+    const dayKey = getTodayKey();
+    const keyHash = apiKey ? simpleHash(apiKey) : '';
+    if (tavilyQuotaState.dayKey !== dayKey || tavilyQuotaState.keyHash !== keyHash) {
+        tavilyQuotaState = {
+            dayKey,
+            keyHash,
+            notified: false,
+            exhausted: false
+        };
+    }
+}
 
 function sanitizeProjectState(state) {
     if (!state || typeof state !== 'object') return state;
@@ -118,7 +138,12 @@ async function ensureProjectSlot() {
 
 document.addEventListener('DOMContentLoaded', async () => {
     loadFromLocalStorage();
+    document.querySelectorAll('.tool-card[data-tool="adv"], .tool-card[data-tool="copywriting"]').forEach((card) => {
+        card.hidden = true;
+        card.style.display = 'none';
+    });
     updateToolCards();
+    updateProjectInputsLockState();
         
     // Load brief if exists
     if (projectState.project.brief_originale) {
@@ -226,6 +251,29 @@ function refreshProjectStateFromStorage() {
 
 function saveToLocalStorage() {
     localStorage.setItem('innuendoai_project_state', JSON.stringify(projectState));
+}
+
+function updateProjectInputsLockState() {
+    const isLocked = !!projectState.project_context?.inputs_locked;
+    const briefInput = document.getElementById('briefInput');
+    const scaleSelect = document.getElementById('scale-development');
+
+    if (briefInput) {
+        briefInput.readOnly = isLocked;
+        briefInput.classList.toggle('locked-input', isLocked);
+    }
+
+    if (scaleSelect) {
+        scaleSelect.disabled = isLocked;
+        scaleSelect.classList.toggle('locked-input', isLocked);
+    }
+}
+
+function setProjectInputsLocked(locked) {
+    projectState.project_context = projectState.project_context || {};
+    projectState.project_context.inputs_locked = !!locked;
+    saveToLocalStorage();
+    updateProjectInputsLockState();
 }
 
 function updateCompletedTools() {
@@ -549,7 +597,7 @@ async function runBriefAnalysis() {
         status.textContent = `Stato: 🎯 Generazione in corso... (${elapsedSec}s)`;
     }, 1000);
 
-    const toolList = ['development', 'target', 'competitors', 'swot', 'copywriting', 'pricing', 'adv', 'risk'];
+    const toolList = ['development', 'target', 'competitors', 'swot', 'pricing', 'risk'];
     const prompt = `
 [ROLE] Agente Analitico Senior
 
@@ -999,6 +1047,7 @@ async function newProject() {
 
     saveToLocalStorage();
     updateAnalysisButtonState();
+    updateProjectInputsLockState();
     addMessage('system', 'Nuovo progetto creato.');
 }
 
@@ -1263,6 +1312,34 @@ function addManagerMessage(role, content) {
     const contentEl = messageDiv.querySelector('.message-content');
     const shouldType = role !== 'user';
     renderMessageWithTyping(contentEl, content || '', null, shouldType);
+    return messageDiv;
+}
+
+function addManagerThinkingMessage() {
+    const messageEl = addManagerMessage('manager', '...');
+    if (!messageEl) return null;
+    messageEl.classList.add('manager-thinking');
+    return messageEl;
+}
+
+function replaceManagerThinkingMessage(messageEl, content) {
+    if (!messageEl || !messageEl.isConnected) {
+        addManagerMessage('manager', content);
+        return;
+    }
+
+    messageEl.classList.remove('manager-thinking');
+    const contentEl = messageEl.querySelector('.message-content');
+    if (!contentEl) {
+        addManagerMessage('manager', content);
+        return;
+    }
+
+    renderMessageWithTyping(contentEl, content || '', null, true);
+    const messagesContainer = document.getElementById('managerMessages');
+    if (messagesContainer) {
+        messagesContainer.scrollTop = messagesContainer.scrollHeight;
+    }
 }
 
 function escapeHtml(text) {
@@ -1494,6 +1571,20 @@ Concentrati su:
 1. cosa ha prodotto il tool appena completato
 2. coerenza con il resto del progetto
 3. dati mancanti, rischi, incoerenze o prossimi approfondimenti utili
+4. differenza tra "campo mancante in un output atteso" e "capacita non coperta dal tool"
+
+[CRITERIO DI VALUTAZIONE]
+- Valuta il tool rispetto a cio che il suo output promette davvero nello stato attuale del progetto.
+- Se manca un elemento non previsto dallo schema del tool, trattalo come possibile evoluzione futura, non come errore del tool.
+- Non commentare il software, il codice o l'architettura tecnica: valuta solo il risultato business prodotto.
+- Se il tool e diagnostico, non penalizzarlo per l'assenza di piani esecutivi avanzati a meno che siano esplicitamente richiesti nel suo output.
+
+[STILE OBBLIGATORIO]
+- Non descrivere il fatto che il tool abbia "generato", "fornito" o "prodotto" un report.
+- Non ripetere gli elementi gia visibili nello stesso output del tool.
+- Scrivi come un reviewer operativo: parti subito da cio che manca o da cio che va validato.
+- Se non ci sono criticita rilevanti, indica comunque il dato o la verifica piu utile per passare allo step successivo.
+- Evita aggettivi valutativi generici come "solido", "completo", "dettagliato", "efficace", "coerente" se non aggiungono una conseguenza operativa.
 
 [OUTPUT]
 Rispondi SOLO in JSON con questa struttura:
@@ -1501,12 +1592,16 @@ Rispondi SOLO in JSON con questa struttura:
   "azione": "ANALISI_STATO",
   "tool_coinvolti": ["nome_tool1"],
   "analisi_stato": "Analisi sintetica ma concreta dello stato attuale (max 180 parole)",
-  "risposta_utente": "Messaggio chiaro da mostrare all'utente con sola analisi, senza suggerire modifiche ai parametri (max 150 parole)"
+  "risposta_utente": "Messaggio chiaro da mostrare all'utente con sola analisi, senza suggerire modifiche ai parametri (max 150 parole). Struttura obbligatoria in 3 frasi brevi: 1) dato/gap principale, 2) rischio o impatto decisionale, 3) prossimo approfondimento utile"
 }
 
 REGOLE:
 - Non proporre modifiche ai parametri
 - Non dire che hai aggiornato tool o impostazioni
+- Non aprire la risposta con giudizi generici come "il tool ha fornito", "ha prodotto", "solida panoramica" o formule simili
+- Non riassumere o celebrare output attesi del tool: l'utente li vede gia nell'interfaccia
+- Evita completamente frasi introduttive come "il report", "l'analisi", "il tool", "la panoramica" se servono solo a ribadire che qualcosa e stato generato
+- Vai subito al punto: lacune residue, dati mancanti, rischi e prossimo approfondimento piu utile
 - Rispondi sempre in italiano
 `;
     }
@@ -1560,6 +1655,44 @@ REGOLE:
 `;
 }
 
+function sanitizeManagerReply(reply) {
+    let text = String(reply || '').trim();
+    if (!text) return text;
+
+    const leadingPatterns = [
+        /^il tool [^.:\n]*[.:]\s*/i,
+        /^il report [^.:\n]*[.:]\s*/i,
+        /^l['’]analisi [^.:\n]*[.:]\s*/i,
+        /^la panoramica [^.:\n]*[.:]\s*/i,
+        /^il report swot [^.:\n]*[.:]\s*/i,
+        /^il tool swot [^.:\n]*[.:]\s*/i,
+        /^il report swot fornisce [^.]*\.\s*/i,
+        /^il tool swot fornisce [^.]*\.\s*/i
+    ];
+
+    leadingPatterns.forEach((pattern) => {
+        text = text.replace(pattern, '');
+    });
+
+    text = text.replace(/^fornisce una panoramica [^.]*\.\s*/i, '');
+    text = text.replace(/^evidenzia [^.]*\.\s*/i, '');
+    text = text.replace(/^integra [^.]*\.\s*/i, '');
+
+    return text.trim() || String(reply || '').trim();
+}
+
+function sanitizeManagerListMarkers(reply) {
+    const text = String(reply || '').trim();
+    if (!text) return text;
+
+    return text
+        .replace(/(^|\s)1[\)\.\-:]\s+/g, '$1')
+        .replace(/(^|\s)2[\)\.\-:]\s+/g, '$1')
+        .replace(/(^|\s)3[\)\.\-:]\s+/g, '$1')
+        .replace(/\s{2,}/g, ' ')
+        .trim();
+}
+
 async function runManagerAI(userMessage, options = {}) {
     refreshConfigFromStorage();
     if (!config.apiKey) {
@@ -1569,6 +1702,7 @@ async function runManagerAI(userMessage, options = {}) {
 
     managerState.isThinking = true;
     if (managerSend) managerSend.disabled = true;
+    const thinkingMessageEl = addManagerThinkingMessage();
     try {
         const prompt = buildManagerPrompt(userMessage, options);
         const response = await callLLM(prompt, 'analitico');
@@ -1579,13 +1713,15 @@ async function runManagerAI(userMessage, options = {}) {
                 report_html: result?.analisi_stato || result?.risposta_utente || ''
             };
         }
+        const reply = sanitizeManagerListMarkers(
+            result?.risposta_utente || "Ho analizzato lo stato progetto e posso suggerire i prossimi passi senza modificare i parametri correnti."
+        );
+
         managerState.conversationHistory.push({
             user: userMessage,
-            response: result?.risposta_utente || ''
+            response: reply
         });
-
-        const reply = result?.risposta_utente || "Ho analizzato lo stato progetto e posso suggerire i prossimi passi senza modificare i parametri correnti.";
-        addManagerMessage('manager', reply);
+        replaceManagerThinkingMessage(thinkingMessageEl, reply);
     } catch (err) {
         addManagerMessage('manager', `⚠️ Errore Manager: ${err.message}`);
     } finally {
@@ -1695,6 +1831,10 @@ async function runTool(toolName) {
         return;
     }
     
+    if (!projectState.project_context?.inputs_locked) {
+        setProjectInputsLocked(true);
+    }
+
     setToolButtonState(toolName, 'loading');
     setToolsDisabled(true, toolName);
     addMessage('system', `⏳ ${toolName.toUpperCase()} in esecuzione...`);
@@ -1902,10 +2042,18 @@ function truncateText(text, maxLen = 280) {
 
 async function callTavilySearch(query, searchDepth = 'basic', apiKey = config.tavilyApiKey) {
     if (!apiKey) return null;
+    syncTavilyQuotaState(apiKey);
+    if (tavilyQuotaState.exhausted) {
+        return { quotaExceeded: true, results: [] };
+    }
     const allowed = consumeQuota('tavily', apiKey, TAVILY_DAILY_LIMIT);
     if (!allowed) {
-        addMessage('system', `Limite giornaliero Tavily (${TAVILY_DAILY_LIMIT}) raggiunto per questa API Key.`);
-        return null;
+        tavilyQuotaState.exhausted = true;
+        if (!tavilyQuotaState.notified) {
+            tavilyQuotaState.notified = true;
+            addMessage('system', `Limite giornaliero Tavily (${TAVILY_DAILY_LIMIT}) raggiunto per questa API Key.`);
+        }
+        return { quotaExceeded: true, results: [] };
     }
     try {
         const response = await fetch('https://api.tavily.com/search', {
@@ -1939,8 +2087,16 @@ async function getTavilyData(query, searchDepth = 'basic') {
     if (!config.tavilyApiKey && resolvedKey) {
         config.tavilyApiKey = resolvedKey;
     }
+    syncTavilyQuotaState(resolvedKey);
+    if (tavilyQuotaState.exhausted) {
+        return { cancelled: false, data: null, quotaExceeded: true };
+    }
     addMessage('system', 'Debug: Tavily in esecuzione...');
     const data = await callTavilySearch(query, searchDepth, resolvedKey);
+    if (data?.quotaExceeded) {
+        addMessage('system', 'Debug: ricerca Tavily interrotta per quota giornaliera esaurita. Procedo con LLM.');
+        return { cancelled: false, data: null, quotaExceeded: true };
+    }
     if (!data) {
         addMessage('system', 'Debug: Tavily non ha restituito risultati.');
     } else {
@@ -1962,12 +2118,15 @@ function resolveTavilyApiKey() {
 async function searchTavilyQueries(queries, searchDepth = 'advanced') {
     const apiKey = resolveTavilyApiKey();
     if (!apiKey) return [];
+    syncTavilyQuotaState(apiKey);
+    if (tavilyQuotaState.exhausted) return [];
 
     const cleanQueries = Array.from(new Set((queries || []).map((q) => String(q || '').trim()).filter(Boolean)));
     const results = [];
 
     for (const query of cleanQueries) {
         const data = await callTavilySearch(query, searchDepth, apiKey);
+        if (data?.quotaExceeded) break;
         results.push({
             query,
             data
@@ -2368,16 +2527,57 @@ function extractCompetitorsFromTavilyData(tavilyData, brief, expectedCount) {
     return fallback.slice(0, expectedCount);
 }
 
+function collectCompetitorCandidatesFromResults(results, brief, limit = 8) {
+    if (!Array.isArray(results) || results.length === 0) return [];
+
+    const stopwords = buildCompetitorStopwords();
+    const briefVariants = new Set(getNameVariants(brief));
+    const candidateMap = new Map();
+
+    results.forEach((item) => {
+        const competitor = extractVerifiedCompetitorFromTavilyItem(item, brief, briefVariants, stopwords);
+        const normalized = normalizeCompetitorName(competitor?.nome_competitor || '');
+        if (!competitor || !normalized) return;
+
+        const existing = candidateMap.get(normalized);
+        if (!existing) {
+            candidateMap.set(normalized, {
+                nome_competitor: competitor.nome_competitor,
+                motivo: competitor.descrizione_breve,
+                bestSource: item,
+                score: 1
+            });
+            return;
+        }
+
+        existing.score += 1;
+        const currentUrl = String(existing.bestSource?.url || '');
+        const nextUrl = String(item?.url || '');
+        if (!currentUrl && nextUrl) {
+            existing.bestSource = item;
+            existing.motivo = competitor.descrizione_breve;
+        }
+    });
+
+    return Array.from(candidateMap.values())
+        .sort((a, b) => b.score - a.score)
+        .slice(0, limit)
+        .map((item) => ({
+            nome_competitor: item.nome_competitor,
+            motivo: item.motivo,
+            query_verifica: ''
+        }));
+}
+
+function addCompetitorsDebugMessage(step, totalSteps, message) {
+    addMessage('system', `Debug Competitors: fase ${step}/${totalSteps} - ${message}`);
+}
+
 function buildCompetitorResearchQueries(brief) {
     return [
-        `${brief} brand target posizionamento distribuzione`,
-        `${brief} prodotti mercato canali vendita certificazioni`,
-        `${brief} concorrenti alternativi settore brand`,
-        `${brief} produttore fornitore industriale ingrosso`,
-        `${brief} gdo retail ecommerce distribuzione`,
-        `"brand settore" target simile distribuzione italia`,
-        `"produttore settore" italia fornitore ingrosso`,
-        `"azienda settore" posizionamento target certificazioni`
+        `${brief} concorrenti brand simili mercato italia`,
+        `${brief} prodotti target distribuzione ecommerce retail`,
+        `${brief} produttori marchi settore alternativa`
     ];
 }
 
@@ -2528,37 +2728,32 @@ Rispondi SOLO JSON in italiano.
     };
 }
 
-async function verifyCompetitorCandidates(candidates, brief, marketResults, expectedCount) {
-    const apiKey = resolveTavilyApiKey();
+async function verifyCompetitorCandidates(candidates, brief, marketResults, expectedCount, options = {}) {
     const briefVariants = new Set(getNameVariants(brief));
     const verified = [];
     const seen = new Set();
+    const onProgress = typeof options.onProgress === 'function' ? options.onProgress : null;
+    let processed = 0;
+    const totalCandidates = Array.isArray(candidates) ? candidates.length : 0;
 
     for (const candidate of candidates) {
         if (verified.length >= expectedCount) break;
 
         const name = String(candidate?.nome_competitor || '').trim();
         const normalized = normalizeCompetitorName(name);
+        processed += 1;
+        if (onProgress) onProgress({ processed, totalCandidates, candidateName: name || 'N/A' });
         if (!name || !normalized || seen.has(normalized)) continue;
         if (mentionsBriefBrand(normalized, briefVariants)) continue;
 
-        const verifyQuery = String(candidate?.query_verifica || `${name} brand prodotti target distribuzione italia`).trim();
-        const relationQuery = `${name} ${brief} gruppo brand`;
-        const verificationEntries = apiKey
-            ? await searchTavilyQueries([verifyQuery, relationQuery], 'basic')
-            : [];
-        const relationResults = flattenTavilyResults(verificationEntries).filter((item) => String(item?.query || '') === relationQuery);
-        const ownershipConflict = relationResults.some((item) => {
+        const matchingResults = marketResults.filter((item) => candidateMatchesSource(name, item));
+        const ownershipConflict = matchingResults.some((item) => {
             const combined = `${item.title || ''} ${item.content || ''} ${item.url || ''}`;
             return textMentionsOwnershipRelation(combined, briefVariants);
         });
         if (ownershipConflict) continue;
 
-        const combinedResults = [
-            ...marketResults,
-            ...flattenTavilyResults(verificationEntries)
-        ];
-        const bestSource = chooseBestSourceForCandidate(name, combinedResults, briefVariants);
+        const bestSource = chooseBestSourceForCandidate(name, marketResults, briefVariants);
         if (!bestSource) continue;
 
         seen.add(normalized);
@@ -2572,36 +2767,66 @@ async function verifyCompetitorCandidates(candidates, brief, marketResults, expe
     return verified;
 }
 
+function buildCompetitorSegmentAnalysis(brief, competitors) {
+    const list = Array.isArray(competitors) ? competitors : [];
+    if (list.length === 0) {
+        return `Non sono emersi competitor sufficientemente verificabili per ${brief} nelle fonti web disponibili.`;
+    }
+
+    const names = list.map((item) => item.nome_competitor).filter(Boolean);
+    const joinedNames = names.join(', ');
+
+    if (list.length === 1) {
+        return `Le fonti web mostrano un panorama molto ristretto per ${brief}: al momento e stato verificato soprattutto ${joinedNames}, con offerta e posizionamento affini.`;
+    }
+
+    return `Le fonti web indicano per ${brief} un panorama competitivo composto da brand attivi con offerta e target comparabili, tra cui ${joinedNames}. L'analisi e limitata ai nomi riscontrati direttamente nelle fonti raccolte.`;
+}
+
 async function runCompetitors() {
     const brief = projectState.project.brief_originale;
     const numComp = config.num_competitor;
-    const initialAnalysis = getInitialAnalysisContext();
-    const brandResult = await getTavilyData(`${brief} brand prodotti target distribuzione posizionamento`, 'advanced');
+
+    addCompetitorsDebugMessage(1, 5, 'profilazione del brief e del brand con Tavily');
+    const brandResult = await getTavilyData(`${brief} brand prodotti target distribuzione posizionamento`, 'basic');
     if (brandResult.cancelled) {
         throw new Error('Operazione annullata dall\'utente.');
     }
-    const marketSearches = await searchTavilyQueries(buildCompetitorResearchQueries(brief), 'advanced');
-    const brandSources = formatTavilySourcesForPrompt(brandResult.data, TAVILY_MAX_RESULTS);
-    const marketResults = flattenTavilyResults(marketSearches);
-    const marketSources = formatFlattenedSourcesForPrompt(marketResults, 12);
 
-    const competitorHypotheses = await generateCompetitorHypotheses(
+    addCompetitorsDebugMessage(2, 5, 'raccolta di un set ridotto di fonti di mercato');
+    const marketQueries = buildCompetitorResearchQueries(brief).slice(0, COMPETITOR_TAVILY_QUERY_LIMIT);
+    const marketSearches = await searchTavilyQueries(marketQueries, 'basic');
+    const combinedResults = flattenTavilyResults([
+        ...marketSearches,
+        {
+            query: `${brief} brand prodotti target distribuzione posizionamento`,
+            data: brandResult.data
+        }
+    ]);
+
+    addCompetitorsDebugMessage(3, 5, 'estrazione dei candidati direttamente dalle fonti web');
+    const extractedCandidates = collectCompetitorCandidatesFromResults(
+        combinedResults,
         brief,
-        initialAnalysis,
-        brandSources,
-        marketSources,
-        numComp
+        Math.max(numComp + 4, 6)
     );
 
+    addCompetitorsDebugMessage(4, 5, `verifica dei candidati emersi dalle fonti (${extractedCandidates.length} da controllare)`);
     const verifiedList = await verifyCompetitorCandidates(
-        competitorHypotheses.candidati || [],
+        extractedCandidates,
         brief,
-        marketResults,
-        numComp
+        combinedResults,
+        numComp,
+        {
+            onProgress: ({ processed, totalCandidates, candidateName }) => {
+                addMessage('system', `Debug Competitors: fase 4/5 - verifica candidato ${processed}/${totalCandidates}: ${candidateName}`);
+            }
+        }
     );
 
+    addCompetitorsDebugMessage(5, 5, 'normalizzazione finale e costruzione dell\'output');
     const finalCompetitorResult = normalizeCompetitorsResult({
-        analisi_segmento: competitorHypotheses.analisi_segmento || `Analisi competitor per ${brief}.`,
+        analisi_segmento: buildCompetitorSegmentAnalysis(brief, verifiedList),
         competitors_reali: verifiedList
     }, numComp);
 
@@ -2617,91 +2842,6 @@ async function runCompetitors() {
     }
 
     throw new Error(`Impossibile verificare competitor affidabili per ${brief}. Prova a rendere il brief piu specifico sul prodotto o sul canale di vendita.`);
-    
-    const basePrompt = `
-[ROLE] Competitive Analysis Expert
-
-[CONTEXT]
-Analisi iniziale:
-${initialAnalysis || 'Nessuna analisi iniziale disponibile.'}
-
-Prodotto: ${brief}
-Fonti web (Tavily, aggiornate):
-${tavilySources || 'Nessuna fonte disponibile.'}
-
-[TASK]
-Trova ${numComp} competitor REALI attualmente operativi.
-
-[REGOLE OBBLIGATORIE]
-- I ${numComp} competitor devono essere TUTTI diversi tra loro.
-- NON ripetere lo stesso brand con varianti del nome societario.
-- Se una fonte cita sempre la stessa azienda, cerca comunque altri competitor reali nello stesso segmento.
-- Restituisci esattamente ${numComp} aziende uniche.
-- Includi il sito web ufficiale o la URL della fonte che conferma l'esistenza del competitor.
-
-[OUTPUT JSON]
-{
-  "analisi_segmento": "Panorama competitivo",
-  "competitors_reali": [
-    {
-      "nome_competitor": "Nome azienda reale",
-      "descrizione_breve": "Cosa fanno (1 frase)",
-      "sito_web": "https://..."
-    }
-  ]
-}
-
-Rispondi SOLO JSON in italiano.
-`;
-
-    let bestNormalized = null;
-    let feedbackPrompt = '';
-    for (let attempt = 0; attempt < 3; attempt += 1) {
-        const response = await callLLM(`${basePrompt}${feedbackPrompt}`, 'analitico');
-        const parsed = parseJsonResponse(response);
-        const normalized = normalizeCompetitorsResult(parsed, numComp);
-        bestNormalized = normalized;
-
-        if (hasEnoughUniqueCompetitors(normalized, numComp)) {
-            return normalized;
-        }
-
-        const currentNames = Array.isArray(parsed?.competitors_reali)
-            ? parsed.competitors_reali.map((item) => item?.nome_competitor).filter(Boolean).join(', ')
-            : 'nessun nome rilevato';
-
-        feedbackPrompt = `
-
-[CORREZIONE]
-La risposta precedente non era valida perché conteneva competitor duplicati, troppo simili o in numero insufficiente.
-Nomi rilevati: ${currentNames}
-Rigenera da zero e restituisci solo ${numComp} competitor unici e distinti.
-`;
-    }
-
-    const tavilyFallback = extractCompetitorsFromTavilyData(tavilyResult.data, brief, numComp);
-    if (tavilyFallback.length > 0) {
-        const merged = normalizeCompetitorsResult({
-            analisi_segmento: bestNormalized?.analisi_segmento || `Panorama competitivo ricostruito da fonti web per ${brief}.`,
-            competitors_reali: [
-                ...(bestNormalized?.competitors_reali || []),
-                ...tavilyFallback
-            ]
-        }, numComp);
-
-        if (hasEnoughUniqueCompetitors(merged, numComp)) {
-            return merged;
-        }
-
-        if (Array.isArray(merged?.competitors_reali) && merged.competitors_reali.length > 0) {
-            return {
-                ...merged,
-                analisi_segmento: `${merged.analisi_segmento || `Panorama competitivo per ${brief}.`} Sono stati trovati ${merged.competitors_reali.length} competitor verificati su ${numComp} richiesti.`
-            };
-        }
-    }
-
-    throw new Error(`Impossibile ottenere ${numComp} competitor unici dalle fonti disponibili. Prova a rilanciare il tool oppure aggiungi nel brief la categoria precisa del prodotto.`);
 }
 
 async function runSWOT() {
@@ -2727,7 +2867,17 @@ Fonti web (Tavily, aggiornate):
 ${tavilySources || 'Nessuna fonte disponibile.'}
 
 [TASK]
-Genera analisi PESTEL + SWOT.
+Genera analisi PESTEL + SWOT orientata alla pianificazione strategica.
+
+[REGOLE]
+- Usa solo informazioni ricavabili dal brief, dal target, dal contesto progetto e dalle fonti Tavily disponibili.
+- NON inventare dati quantitativi specifici, quote di mercato, percentuali o metriche economiche se non presenti nelle fonti.
+- Quando mancano dati numerici, usa solo valutazioni qualitative: "alto", "medio", "basso".
+- Le opportunita devono essere prioritarizzate.
+- Le minacce devono includere una stima qualitativa di probabilita e impatto.
+- Includi una sezione dedicata a quota di mercato/posizionamento competitivo, una ai cost driver produttivi e una alle preferenze di canale.
+- NON trattare il pricing, i range prezzo o la strategia di prezzo in questo output.
+- Chiudi con un piano di azione concreto a 90 giorni.
 
 [OUTPUT JSON]
 {
@@ -2744,7 +2894,65 @@ Genera analisi PESTEL + SWOT.
     "weaknesses": ["debolezza 1", "debolezza 2"],
     "opportunities": ["opportunità 1", "opportunità 2"],
     "threats": ["minaccia 1", "minaccia 2"]
-  }
+  },
+  "market_positioning": {
+    "quota_mercato": {
+      "stato": "disponibile|parziale|non_disponibile",
+      "valore": "eventuale quota o range se presente nelle fonti, altrimenti N/A",
+      "affidabilita": "alta|media|bassa",
+      "nota": "Come si colloca il brand rispetto ai competitor senza inventare numeri"
+    },
+    "posizionamento_competitivo": "leader|challenger|specialista|nicchia|non determinabile",
+    "implicazioni_strategiche": ["Implica 1", "Implica 2"]
+  },
+  "production_cost_drivers": {
+    "driver_principali": ["materie prime", "packaging", "logistica", "certificazioni"],
+    "pressione_costi": "alta|media|bassa",
+    "fattori_critici": ["Fattore 1", "Fattore 2"],
+    "dati_mancanti": ["Dato costo 1", "Dato costo 2"]
+  },
+  "channel_preferences": {
+    "canali_prioritari": ["gdo", "retail specializzato", "ecommerce", "horeca"],
+    "canale_piu_coerente_con_target": "Canale principale",
+    "segnali_dalle_fonti": ["Segnale 1", "Segnale 2"],
+    "criticita_distributive": ["Criticita 1", "Criticita 2"]
+  },
+  "opportunities_prioritized": [
+    {
+      "opportunita": "Nome opportunita",
+      "impatto": "alto|medio|basso",
+      "fattibilita": "alto|medio|basso",
+      "orizzonte_temporale": "breve|medio|lungo",
+      "priorita": 1,
+      "razionale": "Perche va trattata con questa priorita"
+    }
+  ],
+  "threats_risk_matrix": [
+    {
+      "minaccia": "Nome minaccia",
+      "probabilita": "alto|medio|basso",
+      "impatto": "alto|medio|basso",
+      "segnali_deboli": ["Segnale 1", "Segnale 2"],
+      "contromisure_iniziali": ["Azione 1", "Azione 2"]
+    }
+  ],
+  "data_gaps": [
+    {
+      "dato_mancante": "Dato che sarebbe utile raccogliere",
+      "perche_serve": "Decisione che aiuterebbe a prendere",
+      "priorita": "alta|media|bassa"
+    }
+  ],
+  "next_actions_90_days": [
+    {
+      "priorita": 1,
+      "azione": "Azione concreta",
+      "obiettivo": "Risultato atteso",
+      "owner": "marketing|sales|prodotto|founder",
+      "orizzonte": "0-30|31-60|61-90 giorni"
+    }
+  ],
+  "strategic_summary": "Sintesi finale: cosa fare subito, cosa monitorare e dove servono dati aggiuntivi"
 }
 
 Rispondi SOLO JSON in italiano.
@@ -2994,6 +3202,19 @@ function parseJsonResponse(rawText) {
         t = t.replace(/[“”]/g, '"').replace(/[‘’]/g, "'");
         // Remove trailing commas before } or ]
         t = t.replace(/,\s*([}\]])/g, '$1');
+        const lines = t.split('\n');
+        for (let i = 0; i < lines.length - 1; i += 1) {
+            const currentTrim = lines[i].trim();
+            const nextTrim = lines[i + 1].trim();
+            if (!currentTrim || !nextTrim) continue;
+            const currentEndsValue = /["\]\}0-9a-zA-Z]$/.test(currentTrim) && !/[,{:]$/.test(currentTrim);
+            const nextStartsNewToken = /^["{\[]/.test(nextTrim) || /^[0-9-]/.test(nextTrim) || /^(true|false|null)\b/.test(nextTrim);
+            const nextIsCloser = /^[}\]]/.test(nextTrim);
+            if (currentEndsValue && nextStartsNewToken && !nextIsCloser && !currentTrim.endsWith(',')) {
+                lines[i] = `${lines[i]},`;
+            }
+        }
+        t = lines.join('\n');
         return t;
     };
 
@@ -3008,7 +3229,12 @@ function parseJsonResponse(rawText) {
         const lastBrace = text.lastIndexOf('}');
         if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
             const slice = normalizeJson(text.slice(firstBrace, lastBrace + 1));
-            return JSON.parse(slice);
+            try {
+                return JSON.parse(slice);
+            } catch (innerErr) {
+                const detail = innerErr && innerErr.message ? ` Dettaglio parser: ${innerErr.message}` : '';
+                throw new Error(`Risposta non in JSON valido. Prova a rigenerare il tool.${detail}`);
+            }
         }
         throw new Error('Risposta non in JSON valido. Prova a rigenerare il tool.');
     }
